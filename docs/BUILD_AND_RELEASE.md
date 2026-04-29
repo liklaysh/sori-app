@@ -86,6 +86,7 @@ Production icons are stored under `src-tauri/icons` and wired into `src-tauri/ta
 
 Current icon set:
 
+- shared Tauri icon: `src-tauri/icons/icon.png`
 - Windows: `src-tauri/icons/icon.ico`
 - macOS: `src-tauri/icons/icon.icns`
 
