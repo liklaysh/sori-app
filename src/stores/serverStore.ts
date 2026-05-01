@@ -48,7 +48,9 @@ export const useServerStore = create<ServerState>()(
         }
 
         try {
-          const response = await fetch(`${bootstrap.endpoints.api.replace(/\/+$/, "")}/api/system/version`, {
+          const versionUrl = new URL(`${bootstrap.endpoints.api.replace(/\/+$/, "")}/api/system/version`);
+          versionUrl.searchParams.set("_", Date.now().toString());
+          const response = await fetch(versionUrl.toString(), {
             method: "GET",
             credentials: "include",
             headers: {
@@ -77,8 +79,12 @@ export const useServerStore = create<ServerState>()(
       name: "sori-app-server",
       partialize: (state) => ({
         domain: state.domain,
-        bootstrap: state.bootstrap,
-        serverVersion: state.serverVersion
+        bootstrap: state.bootstrap
+      }),
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<ServerState>),
+        serverVersion: null
       })
     }
   )

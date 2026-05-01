@@ -15,6 +15,8 @@ interface SettingsState {
   noiseSuppression: boolean;
   activeMicId: string;
   activeOutputId: string;
+  activeCameraId: string;
+  participantVolumes: Record<string, number>;
   channelMessagePopups: boolean;
   directMessagePopups: boolean;
   voiceJoinSound: boolean;
@@ -25,6 +27,7 @@ interface SettingsState {
   setNotificationSetting: (key: NotificationSettingKey, enabled: boolean) => void;
   setNotificationSettings: (settings: Partial<NotificationSettings>) => void;
   setMediaSettings: (settings: Partial<MediaSettings>) => void;
+  setParticipantVolume: (userId: string, volume: number) => void;
 }
 
 export interface NotificationSettings {
@@ -44,6 +47,7 @@ export interface MediaSettings {
   noiseSuppression: boolean;
   activeMicId: string;
   activeOutputId: string;
+  activeCameraId: string;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -55,6 +59,8 @@ export const useSettingsStore = create<SettingsState>()(
       noiseSuppression: false,
       activeMicId: "default",
       activeOutputId: "default",
+      activeCameraId: "default",
+      participantVolumes: {},
       channelMessagePopups: true,
       directMessagePopups: true,
       voiceJoinSound: true,
@@ -64,7 +70,13 @@ export const useSettingsStore = create<SettingsState>()(
       setLanguage: (language) => set({ language }),
       setNotificationSetting: (key, enabled) => set({ [key]: enabled }),
       setNotificationSettings: (settings) => set(settings),
-      setMediaSettings: (settings) => set(settings)
+      setMediaSettings: (settings) => set(settings),
+      setParticipantVolume: (userId, volume) => set((state) => ({
+        participantVolumes: {
+          ...state.participantVolumes,
+          [userId]: Math.max(0, Math.min(200, Math.round(volume)))
+        }
+      }))
     }),
     { name: "sori-app-settings" }
   )

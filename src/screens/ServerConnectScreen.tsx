@@ -37,36 +37,36 @@ export function ServerConnectScreen() {
   };
 
   return (
-    <main className="sori-window grid h-full place-items-center px-6">
-      <section className="w-full max-w-lg rounded-3xl border border-sori-border bg-sori-panel/90 p-9 shadow-2xl">
+    <main className="grid h-full place-items-center bg-sori-surface-base px-6 text-sori-text-primary">
+      <section className="w-full max-w-lg rounded-[2rem] border border-sori-border-subtle bg-sori-surface-main p-9 shadow-2xl shadow-black/40">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-sori-primary text-white shadow-glow">
+          <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary shadow-glow">
             <Server className="h-8 w-8" />
           </div>
-          <h1 className="text-2xl font-black tracking-tight">{t.connectTitle}</h1>
-          <p className="mt-3 text-sm leading-6 text-sori-muted">{t.connectSubtitle}</p>
+          <h1 className="text-2xl font-black tracking-tight text-sori-text-strong">{t.connectTitle}</h1>
+          <p className="mt-3 text-sm leading-6 text-sori-text-muted">{t.connectSubtitle}</p>
         </div>
 
         <form onSubmit={submit} className="space-y-4">
           <div className="relative">
             <input
-              className="w-full rounded-2xl border border-sori-border bg-sori-elevated px-5 py-4 pr-14 text-lg font-bold outline-none transition focus:border-sori-primary"
+              className="w-full rounded-2xl border border-sori-border-subtle bg-sori-surface-panel px-5 py-4 pr-14 text-lg font-bold text-sori-text-strong outline-none transition placeholder:text-sori-text-dim focus:border-sori-accent-primary focus:ring-1 focus:ring-sori-accent-primary"
               placeholder={t.domainPlaceholder}
               value={domainInput}
               onChange={(event) => setDomainInput(event.target.value)}
               autoFocus
             />
             <div className="absolute right-5 top-1/2 -translate-y-1/2">
-              {status === "checking" && <Loader2 className="h-5 w-5 animate-spin text-sori-primary" />}
-              {status === "ready" && <CheckCircle2 className="h-5 w-5 text-sori-secondary" />}
-              {status === "error" && <TriangleAlert className="h-5 w-5 text-sori-warning" />}
+              {status === "checking" && <Loader2 className="h-5 w-5 animate-spin text-sori-accent-primary" />}
+              {status === "ready" && <CheckCircle2 className="h-5 w-5 text-sori-accent-secondary" />}
+              {status === "error" && <TriangleAlert className="h-5 w-5 text-sori-accent-warning" />}
             </div>
           </div>
 
-          <p className="text-xs text-sori-dim">https://{normalizedDomain || t.domainPlaceholder}</p>
+          <p className="text-xs font-semibold text-sori-text-dim">https://{normalizedDomain || t.domainPlaceholder}</p>
 
           {status === "error" && (
-            <div className="rounded-xl border border-sori-warning/40 bg-sori-warning/10 p-3 text-sm text-sori-warning">
+            <div className="rounded-xl border border-sori-border-danger bg-sori-surface-danger-subtle p-3 text-sm font-bold text-sori-accent-danger">
               {error || t.serverUnavailable}
             </div>
           )}

@@ -21,22 +21,37 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   login: async (identity, password) => {
     set({ status: "loading" });
-    const response = await apiRequest<{ csrfToken?: string; user: SoriUser }>(authPaths.login(), {
-      method: "POST",
-      body: JSON.stringify({
-        email: identity,
-        password
-      })
-    });
+    try {
+      const response = await apiRequest<{ csrfToken?: string; user: SoriUser }>(authPaths.login(), {
+        method: "POST",
+        body: JSON.stringify({
+          email: identity.trim(),
+          password
+        })
+      });
 
-    rememberCsrfToken(response);
-    if (response.user.role === "adminpanel") {
-      await apiRequest(authPaths.logout(), { method: "POST" }).catch(() => undefined);
+      rememberCsrfToken(response);
+      if (response.user.role === "adminpanel") {
+        await apiRequest(authPaths.logout(), { method: "POST" }).catch(() => undefined);
+        clearCsrfToken();
+        set({ user: null, status: "anonymous" });
+        throw new Error("SORI App is for users. Admin panel is available only in the web interface.");
+      }
+
+      const session = await apiRequest<{ csrfToken?: string; user: SoriUser | null }>(authPaths.me());
+      rememberCsrfToken(session);
+      if (!session.user) {
+        clearCsrfToken();
+        set({ user: null, status: "anonymous" });
+        throw new Error("Login succeeded, but the session cookie was not accepted by this client.");
+      }
+
+      set({ user: session.user, status: "authenticated" });
+    } catch (error) {
       clearCsrfToken();
       set({ user: null, status: "anonymous" });
-      throw new Error("SORI App is for users. Admin panel is available only in the web interface.");
+      throw error;
     }
-    set({ user: response.user, status: "authenticated" });
   },
 
   fetchMe: async () => {

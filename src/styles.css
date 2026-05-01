@@ -5,8 +5,38 @@
 :root {
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #090b10;
-  color: #eef3ff;
+  background: #1e2124;
+  color: #dee5ff;
+
+  --sori-surface-base: #1e2124;
+  --sori-surface-panel: #2c2d32;
+  --sori-surface-main: #323338;
+  --sori-surface-elevated: #3b3c41;
+  --sori-surface-hover: #414246;
+  --sori-surface-active: #4a4b51;
+  --sori-surface-selected: #343542;
+  --sori-surface-accent-subtle: #3d3f5c;
+  --sori-surface-danger-subtle: #453539;
+  --sori-surface-success-subtle: #35453e;
+  --sori-surface-warning-subtle: #454135;
+  --sori-surface-overlay: #111214;
+
+  --sori-border-subtle: #37383c;
+  --sori-border-medium: #414246;
+  --sori-border-strong: #4a4b51;
+  --sori-border-accent: #4d4e7a;
+  --sori-border-danger: #5c3738;
+
+  --sori-text-primary: #dee5ff;
+  --sori-text-muted: #8a8baf;
+  --sori-text-dim: #5f616d;
+  --sori-text-strong: #ffffff;
+
+  --sori-accent-primary: #a3a6ff;
+  --sori-accent-secondary: #6df5e1;
+  --sori-accent-danger: #ed4245;
+  --sori-accent-success: #42ed87;
+  --sori-accent-warning: #edc242;
 }
 
 * {
@@ -23,6 +53,7 @@ body,
 body {
   overflow: hidden;
   user-select: none;
+  background: var(--sori-surface-base);
 }
 
 input,
@@ -37,8 +68,49 @@ textarea {
 }
 
 .sori-window {
-  background:
-    radial-gradient(circle at 20% 0%, rgba(124, 92, 255, 0.18), transparent 28rem),
-    radial-gradient(circle at 90% 20%, rgba(52, 211, 197, 0.12), transparent 24rem),
-    #090b10;
+  background: var(--sori-surface-base);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+@keyframes pulse-speaking {
+  0% {
+    border-color: #6df5e1;
+    box-shadow: 0 0 0 2px #6df5e1;
+  }
+
+  100% {
+    border-color: #6df5e1;
+    box-shadow: 0 0 0 0 #6df5e1;
+  }
+}
+
+.speaking-pulse {
+  animation: pulse-speaking 1s infinite alternate;
+  border: 2px solid #6df5e1 !important;
+}
+
+.sori-toast {
+  background: var(--sori-surface-main) !important;
+  border: 1px solid var(--sori-border-subtle) !important;
+  color: var(--sori-text-primary) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.35) !important;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+
+.sori-toast [data-title] {
+  color: var(--sori-text-strong) !important;
+  font-weight: 800 !important;
+}
+
+.sori-toast [data-description] {
+  color: var(--sori-text-muted) !important;
+  font-weight: 600 !important;
 }

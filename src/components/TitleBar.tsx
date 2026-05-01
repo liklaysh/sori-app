@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { cn } from "../lib/cn";
 import { detectDesktopPlatform, shouldUseNativeWindowControls, type DesktopPlatform } from "../lib/platform";
+import { useServerStore } from "../stores/serverStore";
 
 async function runWindowAction(action: "minimize" | "maximize" | "close") {
   try {
@@ -22,6 +23,7 @@ async function runWindowAction(action: "minimize" | "maximize" | "close") {
 
 export function TitleBar() {
   const [platform, setPlatform] = useState<DesktopPlatform>("unknown");
+  const serverName = useServerStore((state) => state.bootstrap?.server.name);
   const useNativeControls = shouldUseNativeWindowControls(platform);
 
   useEffect(() => {
@@ -42,16 +44,12 @@ export function TitleBar() {
 
   return (
     <header className={cn(
-      "flex h-11 select-none items-center justify-between border-b border-sori-border bg-sori-panel/95",
+      "relative flex h-10 select-none items-center justify-between border-b border-sori-border-subtle bg-sori-surface-panel",
       useNativeControls && "pl-20"
     )}>
-      <div data-tauri-drag-region className="flex h-full flex-1 items-center gap-3 px-4">
-        <div className="grid h-6 w-6 place-items-center rounded-md bg-sori-primary text-[10px] font-black text-white shadow-glow">
-          S
-        </div>
-        <div className="text-xs font-black uppercase tracking-[0.2em] text-sori-text">
-          SORI App
-        </div>
+      <div data-tauri-drag-region className="h-full flex-1" />
+      <div data-tauri-drag-region className="pointer-events-none absolute left-1/2 top-1/2 max-w-[50vw] -translate-x-1/2 -translate-y-1/2 truncate text-center text-xs font-black uppercase tracking-[0.2em] text-sori-text-strong">
+        {serverName || "SORI App"}
       </div>
 
       {!useNativeControls && (
@@ -64,7 +62,7 @@ export function TitleBar() {
           </TitleBarButton>
           <TitleBarButton
             label="Close"
-            className="hover:bg-sori-danger hover:text-white"
+            className="hover:bg-sori-accent-danger hover:text-white"
             onClick={() => runWindowAction("close")}
           >
             <X className="h-4 w-4" />
@@ -86,7 +84,7 @@ function TitleBarButton(props: {
       type="button"
       aria-label={props.label}
       className={cn(
-        "grid h-11 w-12 place-items-center text-sori-muted transition-colors hover:bg-sori-hover hover:text-sori-text",
+        "grid h-10 w-12 place-items-center text-sori-text-muted transition-colors hover:bg-sori-surface-hover hover:text-sori-text-strong",
         props.className
       )}
       onClick={props.onClick}

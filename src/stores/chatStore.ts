@@ -17,6 +17,7 @@ interface ChatState {
   activeMode: ChatMode;
   activeChannelId: string | null;
   activeConversationId: string | null;
+  typingUsers: Record<string, string>;
   loading: boolean;
   sending: boolean;
   loadInitialData: () => Promise<void>;
@@ -26,6 +27,8 @@ interface ChatState {
   addIncomingMessage: (message: Message) => void;
   addCallLog: (log: ChatItem) => void;
   upsertConversation: (conversation: DMConversation) => void;
+  startConversation: (targetUserId: string) => Promise<DMConversation | null>;
+  setTyping: (channelId: string, username: string | null) => void;
 }
 
 function channelContext(channelId: string) {
@@ -60,6 +63,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeMode: "channel",
   activeChannelId: null,
   activeConversationId: null,
+  typingUsers: {},
   loading: false,
   sending: false,
 
@@ -101,8 +105,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   selectChannel: async (channelId) => {
     const socket = useSocketStore.getState().socket;
-    socket?.emit("join_channel", channelId);
+    const channel = get().channels.find((item) => item.id === channelId) || null;
+    if (channel?.type === "text") {
+      socket?.emit("join_channel", channelId);
+    }
     set({ activeMode: "channel", activeChannelId: channelId, activeConversationId: null });
+
+    if (channel?.type === "voice") {
+      return;
+    }
 
     const context = channelContext(channelId);
     if (get().messagesByContext[context]) {
@@ -242,6 +253,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ? state.conversations.map((item) => item.id === normalized.id ? { ...item, ...normalized } : item)
         : [normalized, ...state.conversations]
     };
+  }),
+
+  startConversation: async (targetUserId) => {
+    const currentUserId = useAuthStore.getState().user?.id;
+    if (!targetUserId || targetUserId === currentUserId) {
+      return null;
+    }
+
+    try {
+      const conversation = await apiRequest<DMConversation>("/dm/conversations", {
+        method: "POST",
+        body: JSON.stringify({ targetUserId })
+      });
+      get().upsertConversation(conversation);
+      return normalizeConversation(conversation);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to start direct message.");
+      return null;
+    }
+  },
+
+  setTyping: (channelId, username) => set((state) => {
+    const next = { ...state.typingUsers };
+    if (username) {
+      next[channelId] = username;
+    } else {
+      delete next[channelId];
+    }
+    return { typingUsers: next };
   })
 }));
 

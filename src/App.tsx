@@ -8,8 +8,10 @@ import { useAuthStore } from "./stores/authStore";
 import { useServerStore } from "./stores/serverStore";
 import { useSocketStore } from "./stores/socketStore";
 import { preloadNotificationSounds } from "./lib/notificationSounds";
+import { useT } from "./lib/i18n";
 
 export function App() {
+  const t = useT();
   const bootstrap = useServerStore((state) => state.bootstrap);
   const domain = useServerStore((state) => state.domain);
   const authStatus = useAuthStore((state) => state.status);
@@ -35,16 +37,16 @@ export function App() {
   }, [bootstrap, connectSocket, disconnectSocket, user]);
 
   return (
-    <div className="h-screen overflow-hidden bg-sori-bg text-sori-text">
+    <div className="h-screen overflow-hidden bg-sori-surface-base text-sori-text-primary">
       <TitleBar />
-      <div className="h-[calc(100vh-2.75rem)]">
+      <div className="h-[calc(100vh-2.5rem)]">
         {!bootstrap ? (
           <ServerConnectScreen />
         ) : authStatus === "checking" ? (
           <div className="grid h-full place-items-center">
-            <div className="flex items-center gap-3 text-sm font-bold text-sori-muted">
-              <Loader2 className="h-5 w-5 animate-spin text-sori-primary" />
-              Checking session for {domain}
+            <div className="flex items-center gap-3 text-sm font-bold text-sori-text-muted">
+              <Loader2 className="h-5 w-5 animate-spin text-sori-accent-primary" />
+              {t.checkingSession.replace("{domain}", domain || "SORI")}
             </div>
           </div>
         ) : user ? (

@@ -1,4 +1,5 @@
 import { useServerStore } from "../stores/serverStore";
+import { clearDesktopSession, desktopHttpRequest, desktopHttpUpload, isTauriRuntime } from "./desktopHttp";
 import { createRequestId } from "./requestId";
 
 let csrfToken: string | null = null;
@@ -11,6 +12,7 @@ export function rememberCsrfToken(data: unknown) {
 
 export function clearCsrfToken() {
   csrfToken = null;
+  clearDesktopSession();
 }
 
 function getApiBaseUrl() {
@@ -51,6 +53,7 @@ async function ensureCsrfToken() {
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method || "GET").toUpperCase();
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${getApiBaseUrl()}${normalizedPath}`;
   const headers = new Headers(init.headers);
 
   headers.set("Accept", "application/json");
@@ -67,19 +70,32 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     }
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${normalizedPath}`, {
-    ...init,
-    method,
-    headers,
-    credentials: "include"
-  });
+  let status: number;
+  let ok: boolean;
+  let text: string;
 
-  const text = await response.text();
+  if (isTauriRuntime()) {
+    const response = await desktopHttpRequest(url, method, headers, init.body);
+    status = response.status;
+    ok = status >= 200 && status < 300;
+    text = response.body;
+  } else {
+    const response = await fetch(url, {
+      ...init,
+      method,
+      headers,
+      credentials: "include"
+    });
+    status = response.status;
+    ok = response.ok;
+    text = await response.text();
+  }
+
   const data = text ? JSON.parse(text) : null;
   rememberCsrfToken(data);
 
-  if (!response.ok) {
-    const message = data?.error || data?.message || `Request failed: ${response.status}`;
+  if (!ok) {
+    const message = data?.error || data?.message || `Request failed: ${status}`;
     throw new Error(message);
   }
 
@@ -88,6 +104,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
 export async function uploadFormData<T>(path: string, formData: FormData): Promise<T> {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${getApiBaseUrl()}${normalizedPath}`;
   const headers = new Headers({
     Accept: "application/json",
     "X-Request-ID": createRequestId()
@@ -98,19 +115,32 @@ export async function uploadFormData<T>(path: string, formData: FormData): Promi
     headers.set("X-CSRF-Token", token);
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${normalizedPath}`, {
-    method: "POST",
-    headers,
-    credentials: "include",
-    body: formData
-  });
+  let status: number;
+  let ok: boolean;
+  let text: string;
 
-  const text = await response.text();
+  if (isTauriRuntime()) {
+    const response = await desktopHttpUpload(url, headers, formData);
+    status = response.status;
+    ok = status >= 200 && status < 300;
+    text = response.body;
+  } else {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: formData
+    });
+    status = response.status;
+    ok = response.ok;
+    text = await response.text();
+  }
+
   const data = text ? JSON.parse(text) : null;
   rememberCsrfToken(data);
 
-  if (!response.ok) {
-    const message = data?.error || data?.message || `Upload failed: ${response.status}`;
+  if (!ok) {
+    const message = data?.error || data?.message || `Upload failed: ${status}`;
     throw new Error(message);
   }
 

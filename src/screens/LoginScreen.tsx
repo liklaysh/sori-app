@@ -10,6 +10,7 @@ export function LoginScreen() {
   const [identity, setIdentity] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
   const login = useAuthStore((state) => state.login);
   const authStatus = useAuthStore((state) => state.status);
   const domain = useServerStore((state) => state.domain);
@@ -17,82 +18,95 @@ export function LoginScreen() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    setError("");
     try {
       await login(identity, password);
-      toast.success("Welcome to SORI.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Login failed.");
+      toast.success(t.welcomeBack);
+    } catch (loginError) {
+      const message = loginError instanceof Error ? loginError.message : t.loginFailed;
+      setError(message);
+      toast.error(message);
     }
   };
 
   return (
-    <main className="sori-window grid h-full place-items-center px-6">
-      <section className="w-full max-w-md rounded-3xl border border-sori-border bg-sori-panel/90 p-9 shadow-2xl">
-        <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-sori-primary text-white shadow-glow">
-            S
+    <main className="grid h-full place-items-center bg-sori-surface-base p-6 text-sori-text-primary">
+      <section className="relative z-10 w-full max-w-md">
+        <div className="rounded-[2rem] border border-sori-border-subtle bg-sori-surface-main p-10 shadow-2xl shadow-black">
+          <div className="mb-10 flex flex-col items-center">
+            <div className="mb-4 grid h-20 w-20 place-items-center rounded-[1.5rem] border border-sori-border-accent bg-sori-surface-accent-subtle text-3xl font-black text-sori-accent-primary shadow-2xl">
+              S
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-sori-text-strong">SORI</h1>
+            <p className="mt-2 text-sm font-bold uppercase tracking-widest text-sori-text-muted">{t.loginTitle}</p>
+            <button
+              type="button"
+              className="mt-5 inline-flex max-w-full items-center gap-2 rounded-xl border border-sori-border-subtle bg-sori-surface-panel px-3 py-2 text-xs font-bold text-sori-text-muted transition hover:bg-sori-surface-hover hover:text-sori-text-strong"
+              onClick={clearServer}
+            >
+              <Server className="h-3.5 w-3.5 shrink-0 text-sori-accent-primary" />
+              <span className="min-w-0 truncate">{domain}</span>
+              <span className="shrink-0 text-sori-text-dim">·</span>
+              <span className="shrink-0">{t.changeServer}</span>
+            </button>
           </div>
-          <h1 className="text-2xl font-black tracking-tight">SORI</h1>
-          <p className="mt-2 text-xs font-black uppercase tracking-[0.2em] text-sori-muted">{t.loginTitle}</p>
-          <button
-            type="button"
-            className="mt-4 inline-flex items-center gap-2 rounded-full border border-sori-border px-3 py-1.5 text-xs font-bold text-sori-muted transition hover:bg-sori-hover hover:text-sori-text"
-            onClick={clearServer}
-          >
-            <Server className="h-3.5 w-3.5" />
-            {domain} • {t.changeServer}
-          </button>
+
+          <form onSubmit={submit} className="space-y-6">
+            {error && (
+              <div className="rounded-xl border border-sori-accent-danger bg-sori-surface-danger-subtle p-4 text-center text-xs font-bold text-sori-accent-danger">
+                {error}
+              </div>
+            )}
+
+            <label className="block space-y-2">
+              <span className="ml-2 block text-xs font-black uppercase tracking-widest text-sori-accent-secondary">
+                {t.identity}
+              </span>
+              <div className="group relative">
+                <User className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-sori-text-muted transition-colors group-focus-within:text-sori-accent-primary" />
+                <input
+                  className="w-full rounded-xl border border-sori-border-subtle bg-sori-surface-panel py-4 pl-12 pr-4 font-bold text-sori-text-strong outline-none transition focus:border-sori-accent-primary focus:ring-1 focus:ring-sori-accent-primary"
+                  value={identity}
+                  onChange={(event) => setIdentity(event.target.value)}
+                  autoComplete="username"
+                  required
+                />
+              </div>
+            </label>
+
+            <label className="block space-y-2">
+              <span className="ml-2 block text-xs font-black uppercase tracking-widest text-sori-accent-secondary">
+                {t.password}
+              </span>
+              <div className="group relative">
+                <Lock className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-sori-text-muted transition-colors group-focus-within:text-sori-accent-secondary" />
+                <input
+                  className="w-full rounded-xl border border-sori-border-subtle bg-sori-surface-panel py-4 pl-12 pr-12 font-bold tracking-widest text-sori-text-strong outline-none transition focus:border-sori-accent-secondary focus:ring-1 focus:ring-sori-accent-secondary"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-sori-text-muted transition hover:text-sori-text-strong"
+                  onClick={() => setShowPassword((value) => !value)}
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
+              </div>
+            </label>
+
+            <button
+              type="submit"
+              disabled={authStatus === "loading"}
+              className="w-full rounded-xl bg-sori-accent-primary py-4 font-black text-black shadow-lg transition active:scale-[0.98] disabled:bg-sori-surface-active disabled:text-sori-text-muted"
+            >
+              {authStatus === "loading" ? t.loggingIn : t.login}
+            </button>
+          </form>
         </div>
-
-        <form onSubmit={submit} className="space-y-5">
-          <label className="block">
-            <span className="mb-2 block text-[10px] font-black uppercase tracking-[0.2em] text-sori-secondary">
-              {t.identity}
-            </span>
-            <div className="relative">
-              <User className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-sori-muted" />
-              <input
-                className="w-full rounded-xl border border-sori-border bg-sori-elevated py-4 pl-12 pr-4 font-bold outline-none transition focus:border-sori-primary"
-                value={identity}
-                onChange={(event) => setIdentity(event.target.value)}
-                autoComplete="username"
-                required
-              />
-            </div>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-[10px] font-black uppercase tracking-[0.2em] text-sori-secondary">
-              {t.password}
-            </span>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-sori-muted" />
-              <input
-                className="w-full rounded-xl border border-sori-border bg-sori-elevated py-4 pl-12 pr-12 font-bold tracking-widest outline-none transition focus:border-sori-primary"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                required
-              />
-              <button
-                type="button"
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-sori-muted hover:text-sori-text"
-                onClick={() => setShowPassword((value) => !value)}
-              >
-                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-              </button>
-            </div>
-          </label>
-
-          <button
-            type="submit"
-            disabled={authStatus === "loading"}
-            className="w-full rounded-xl bg-sori-primary py-4 font-black text-white shadow-glow transition active:scale-[0.98] disabled:opacity-60"
-          >
-            {authStatus === "loading" ? t.loggingIn : t.login}
-          </button>
-        </form>
       </section>
     </main>
   );

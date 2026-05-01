@@ -1,29 +1,33 @@
 # SORI App
 
-Desktop client for SORI, built with Tauri v2, React, Vite, Zustand, Tailwind, Socket.io, LiveKit, and Sonner.
+Десктопный клиент SORI на базе Tauri v2, React, Vite, Zustand, Tailwind, Socket.io, LiveKit и Sonner.
 
-SORI App is a user desktop client. The SORI admin panel remains available only through the server web interface with admin credentials.
+SORI App — это пользовательский desktop-клиент. Админ-панель SORI остаётся доступной только через web-интерфейс сервера по админским учётным данным.
 
-The client connects to an existing SORI server through bootstrap discovery:
+<p>
+  Русский | <a href="./README.en.md">English</a>
+</p>
+
+Клиент подключается к существующему серверу SORI через bootstrap discovery:
 
 ```text
 https://<domain>/.well-known/sori/client.json
 ```
 
-Fallback:
+Fallback endpoint:
 
 ```text
 https://<domain>/client/bootstrap
 ```
 
-## Development
+## Разработка
 
 ```bash
 npm install
 npm run dev
 ```
 
-Tauri development shell:
+Dev-shell Tauri:
 
 ```bash
 npm run tauri:dev
@@ -35,21 +39,21 @@ Production web build:
 npm run build
 ```
 
-Native desktop builds are prepared for future GitHub Actions runners. They are not required for local frontend work:
+Native desktop builds подготовлены для будущих GitHub Actions runners. Для локальной frontend-разработки они не обязательны:
 
 ```bash
 npm run tauri:build
 ```
 
-Architecture notes: [docs/CLIENT_ARCHITECTURE.md](docs/CLIENT_ARCHITECTURE.md).
+Архитектурные заметки: [docs/CLIENT_ARCHITECTURE.md](docs/CLIENT_ARCHITECTURE.md).
 
-Build/release notes: [docs/BUILD_AND_RELEASE.md](docs/BUILD_AND_RELEASE.md).
+Сборка и релизы: [docs/BUILD_AND_RELEASE.md](docs/BUILD_AND_RELEASE.md).
 
-Desktop test builds:
+Тестовые desktop-сборки:
 
-1. Push branch `sori-app-win`.
-2. Open GitHub Actions.
-3. Run **Windows Desktop Build** / **macOS Desktop Build** or wait for the push-triggered runs.
-4. Download artifact `sori-app-windows-installer` or `sori-app-macos-dmg`.
+1. Запушить ветку `sori-app-win`.
+2. Открыть GitHub Actions.
+3. Запустить **Windows Desktop Build** / **macOS Desktop Build** или дождаться запуска по push.
+4. Скачать artifact `sori-app-windows-installer` или `sori-app-macos-dmg`.
 
-First-run smoke test checklist: [docs/TESTING.md](docs/TESTING.md).
+Smoke checklist первого запуска: [docs/TESTING.md](docs/TESTING.md).

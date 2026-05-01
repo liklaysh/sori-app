@@ -77,6 +77,7 @@ export interface VoiceOccupant {
   avatarUrl?: string | null;
   joinedAt: number;
   isSpeaking?: boolean;
+  isStreaming?: boolean;
   isMuted?: boolean;
   isDeafened?: boolean;
 }
@@ -103,6 +104,8 @@ export interface Message {
   attachment?: Attachment | null;
   type?: string;
   requestId?: string;
+  linkMetadata?: string | LinkMetadata[] | LinkMetadata | null;
+  reactions?: Array<{ emoji: string; userId?: string }>;
 }
 
 export interface CallLog {
@@ -128,6 +131,15 @@ export interface DMConversation {
   lastMessage?: string | null;
   updatedAt: number | string;
   unreadCount?: number;
+}
+
+export interface LinkMetadata {
+  url: string;
+  title?: string | null;
+  description?: string | null;
+  image?: string | null;
+  siteName?: string | null;
+  isPrivate?: boolean;
 }
 
 export interface SystemVersionPayload {

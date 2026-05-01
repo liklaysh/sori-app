@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { toast } from "sonner";
 import type { VoiceOccupant } from "../types/sori";
 import { apiRequest } from "../lib/api";
+import { ensureMicrophoneAccess } from "../lib/mediaDevices";
 import { playNotificationSound } from "../lib/notificationSounds";
 import { useSocketStore } from "./socketStore";
 
@@ -36,6 +37,8 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     const socket = useSocketStore.getState().socket;
     set({ status: "connecting" });
     try {
+      await ensureMicrophoneAccess();
+
       const tokenData = await apiRequest<{ token: string; startedAt?: number }>("/calls/token", {
         method: "POST",
         body: JSON.stringify({ channelId })
