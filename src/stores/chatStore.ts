@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { toast } from "sonner";
-import type { Attachment, Channel, ChatItem, Community, DMConversation, Member, Message } from "../types/sori";
+import type { Attachment, Channel, ChatItem, Community, DMConversation, Member, Message, SoriUser } from "../types/sori";
 import { apiRequest } from "../lib/api";
 import { useAuthStore } from "./authStore";
 import { useServerStore } from "./serverStore";
@@ -29,6 +29,7 @@ interface ChatState {
   upsertConversation: (conversation: DMConversation) => void;
   startConversation: (targetUserId: string) => Promise<DMConversation | null>;
   setTyping: (channelId: string, username: string | null) => void;
+  updateUserReferences: (user: { id: string; username?: string | null; avatarUrl?: string | null; status?: Member["status"] | null }) => void;
 }
 
 function channelContext(channelId: string) {
@@ -282,6 +283,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
       delete next[channelId];
     }
     return { typingUsers: next };
+  }),
+
+  updateUserReferences: (user) => set((state) => {
+    const patchUser = <T extends SoriUser | Member | null | undefined>(candidate: T): T => {
+      if (!candidate || candidate.id !== user.id) {
+        return candidate;
+      }
+
+      return {
+        ...candidate,
+        ...(user.username !== undefined && user.username !== null ? { username: user.username } : {}),
+        ...(user.avatarUrl !== undefined ? { avatarUrl: user.avatarUrl } : {}),
+        ...(user.status !== undefined && user.status !== null && "status" in candidate ? { status: user.status } : {}),
+      };
+    };
+
+    const patchMessage = (item: ChatItem): ChatItem => {
+      if (item.type === "system_call") {
+        return item;
+      }
+
+      const message = item as Message;
+      return {
+        ...message,
+        ...(message.authorId === user.id && user.username ? { username: user.username } : {}),
+        author: patchUser(message.author),
+      };
+    };
+
+    return {
+      members: state.members.map((member) => member.id === user.id ? patchUser(member)! : member),
+      conversations: state.conversations.map((conversation) => ({
+        ...conversation,
+        user1: patchUser(conversation.user1),
+        user2: patchUser(conversation.user2),
+      })),
+      messagesByContext: Object.fromEntries(
+        Object.entries(state.messagesByContext).map(([contextKey, messages]) => [
+          contextKey,
+          messages.map(patchMessage),
+        ]),
+      ),
+    };
   })
 }));
 

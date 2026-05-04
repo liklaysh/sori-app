@@ -73,8 +73,10 @@ export function useMainShellController() {
   const leaveVoiceChannel = useVoiceStore((state) => state.leaveChannel);
   const setVoiceOccupants = useVoiceStore((state) => state.setOccupants);
   const updateVoiceOccupant = useVoiceStore((state) => state.updateOccupant);
+  const updateVoiceUserReferences = useVoiceStore((state) => state.updateUserReferences);
   const toggleMute = useVoiceStore((state) => state.toggleMute);
   const toggleDeafen = useVoiceStore((state) => state.toggleDeafen);
+  const updateUserReferences = useChatStore((state) => state.updateUserReferences);
 
   useEffect(() => {
     if (user && bootstrap) {
@@ -105,6 +107,8 @@ export function useMainShellController() {
     resetDirectCall,
     setVoiceOccupants,
     updateVoiceOccupant,
+    updateUserReferences,
+    updateVoiceUserReferences,
     setTyping
   }), [
     socket,
@@ -122,6 +126,8 @@ export function useMainShellController() {
     resetDirectCall,
     setVoiceOccupants,
     updateVoiceOccupant,
+    updateUserReferences,
+    updateVoiceUserReferences,
     setTyping
   ]);
 

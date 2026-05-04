@@ -1,7 +1,8 @@
 use base64::Engine;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, SET_COOKIE};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, COOKIE, SET_COOKIE};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::process::Command;
 use std::sync::Mutex;
 use tauri::State;
 
@@ -93,6 +94,23 @@ fn apply_headers(
     request
 }
 
+fn apply_session_cookie(
+    request: reqwest::RequestBuilder,
+    state: &DesktopHttpState,
+) -> reqwest::RequestBuilder {
+    let session_token = state
+        .session_token
+        .lock()
+        .expect("failed to lock SORI desktop session token")
+        .clone();
+
+    if let Some(token) = session_token.filter(|token| !token.is_empty()) {
+        request.header(COOKIE, format!("sori_auth={token}"))
+    } else {
+        request
+    }
+}
+
 fn remember_session_cookie(state: &DesktopHttpState, headers: &HeaderMap) {
     for value in headers.get_all(SET_COOKIE).iter() {
         let Ok(cookie) = value.to_str() else {
@@ -143,6 +161,7 @@ async fn desktop_http_request(
 
     let builder = state.client.request(method, request.url);
     let builder = apply_headers(builder, &request.headers);
+    let builder = apply_session_cookie(builder, &state);
     let builder = match request.body {
         Some(body) => builder.body(body),
         None => builder,
@@ -178,6 +197,7 @@ async fn desktop_http_upload(
 
     let builder = state.client.post(request.url).multipart(form);
     let builder = apply_headers(builder, &request.headers);
+    let builder = apply_session_cookie(builder, &state);
     let response = builder.send().await.map_err(|error| error.to_string())?;
     parse_response(&state, response).await
 }
@@ -200,6 +220,48 @@ fn desktop_http_clear_session(state: State<'_, DesktopHttpState>) {
     *session_token = None;
 }
 
+#[tauri::command]
+fn desktop_http_set_session_token(state: State<'_, DesktopHttpState>, token: Option<String>) {
+    let mut session_token = state
+        .session_token
+        .lock()
+        .expect("failed to lock SORI desktop session token");
+    *session_token = token.filter(|value| !value.is_empty());
+}
+
+#[tauri::command]
+fn desktop_open_external_url(url: String) -> Result<(), String> {
+    let lower_url = url.to_ascii_lowercase();
+    if !lower_url.starts_with("https://")
+        && !lower_url.starts_with("http://")
+        && !lower_url.starts_with("mailto:")
+    {
+        return Err("Unsupported URL scheme".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    let status = Command::new("open").arg(&url).status();
+
+    #[cfg(target_os = "windows")]
+    let status = Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &url])
+        .status();
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let status = Command::new("xdg-open").arg(&url).status();
+
+    status
+        .map_err(|error| error.to_string())
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("Failed to open URL: {status}"))
+            }
+        })
+}
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -208,7 +270,9 @@ pub fn run() {
             desktop_http_request,
             desktop_http_upload,
             desktop_http_session_token,
-            desktop_http_clear_session
+            desktop_http_set_session_token,
+            desktop_http_clear_session,
+            desktop_open_external_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running SORI App");

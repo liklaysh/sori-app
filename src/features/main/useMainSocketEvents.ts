@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { playNotificationSound } from "../../lib/notificationSounds";
+import { useAuthStore } from "../../stores/authStore";
 import type { DMConversation, Message, SoriUser, VoiceOccupant } from "../../types/sori";
 
 interface MainSocketEventsOptions {
@@ -22,6 +23,8 @@ interface MainSocketEventsOptions {
   resetDirectCall: () => void;
   setVoiceOccupants: (channelId: string, occupants: VoiceOccupant[]) => void;
   updateVoiceOccupant: (channelId: string, userId: string, data: Partial<VoiceOccupant>) => void;
+  updateUserReferences: (user: { id: string; username?: string | null; avatarUrl?: string | null; status?: "online" | "offline" | "idle" | "dnd" | null }) => void;
+  updateVoiceUserReferences: (user: { id: string; username?: string | null; avatarUrl?: string | null }) => void;
   setTyping: (channelId: string, username: string | null) => void;
 }
 
@@ -64,6 +67,18 @@ export function useMainSocketEvents(options: MainSocketEventsOptions) {
         playNotificationSound("voiceLeave");
       }
     };
+    const handleUserUpdated = (data: { id: string; username?: string | null; avatarUrl?: string | null; status?: "online" | "offline" | "idle" | "dnd" | null }) => {
+      options.updateUserReferences(data);
+      options.updateVoiceUserReferences(data);
+      const currentUser = useAuthStore.getState().user;
+      if (currentUser?.id === data.id) {
+        useAuthStore.getState().setUser({
+          ...currentUser,
+          ...(data.username !== undefined && data.username !== null ? { username: data.username } : {}),
+          ...(data.avatarUrl !== undefined ? { avatarUrl: data.avatarUrl } : {}),
+        });
+      }
+    };
 
     options.socket.on("new_message", handleMessage);
     options.socket.on("new_direct_message", handleMessage);
@@ -90,6 +105,7 @@ export function useMainSocketEvents(options: MainSocketEventsOptions) {
     options.socket.on("user_audio_status", (data: { channelId: string; userId: string; isMuted: boolean; isDeafened: boolean }) => {
       options.updateVoiceOccupant(data.channelId, data.userId, { isMuted: data.isMuted, isDeafened: data.isDeafened });
     });
+    options.socket.on("user_updated", handleUserUpdated);
     options.socket.on("user_typing", (data: { userId: string; username: string; isTyping: boolean }) => {
       if (!options.activeChannelId || data.userId === options.userId) return;
       options.setTyping(options.activeChannelId, data.isTyping ? data.username : null);
@@ -113,6 +129,7 @@ export function useMainSocketEvents(options: MainSocketEventsOptions) {
       options.socket?.off("voice_user_left", handleVoiceUserLeft);
       options.socket?.off("user_speaking_status");
       options.socket?.off("user_audio_status");
+      options.socket?.off("user_updated", handleUserUpdated);
       options.socket?.off("user_typing");
     };
   }, [options]);

@@ -65,6 +65,9 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ user: null, status: "anonymous" });
         return;
       }
+      if (!response.user) {
+        clearCsrfToken();
+      }
       set({
         user: response.user,
         status: response.user ? "authenticated" : "anonymous"

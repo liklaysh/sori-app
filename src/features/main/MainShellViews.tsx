@@ -40,6 +40,7 @@ import { toast } from "sonner";
 import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 import { apiRequest } from "../../lib/api";
+import { openExternalUrl } from "../../lib/desktopHttp";
 import { uploadAttachment } from "../../lib/upload";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { Attachment, Channel, ChatItem, DMConversation, LinkMetadata, Member, Message, SoriUser, VoiceOccupant } from "../../types/sori";
@@ -1157,7 +1158,7 @@ export function MessageRow(props: { message: Message; currentUser: SoriUser | nu
             ) : message.content || message.isDeleted ? (
               <div
                 className={cn(
-                  "rounded-2xl px-4 py-2.5 text-sm leading-6 shadow-sm transition-all",
+                  "rounded-2xl px-4 py-2.5 text-sm leading-6 shadow-sm transition-all select-text cursor-text",
                   message.isDeleted
                     ? "border border-sori-border-subtle bg-sori-surface-base text-sori-text-dim italic"
                     : isOwn
@@ -1230,6 +1231,11 @@ export function MessageAttachment(props: { attachment: Attachment; onOpen?: () =
         href={props.attachment.fileUrl}
         download={props.attachment.fileName}
         className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sori-surface-accent-subtle text-sori-accent-primary transition hover:bg-sori-accent-primary hover:text-black"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void openSafeExternalUrl(props.attachment.fileUrl);
+        }}
       >
         <Download className="h-5 w-5" />
       </a>
@@ -1258,7 +1264,11 @@ function AttachmentLightbox(props: { attachment: Attachment; onClose: () => void
           href={props.attachment.fileUrl}
           download={props.attachment.fileName}
           className="grid h-12 w-12 place-items-center rounded-2xl border border-sori-border-subtle bg-sori-surface-panel text-sori-text-strong shadow-lg transition hover:bg-sori-accent-primary hover:text-black"
-          onClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void openSafeExternalUrl(props.attachment.fileUrl);
+          }}
         >
           <Save className="h-6 w-6" />
         </a>
@@ -1367,7 +1377,11 @@ function EmbedCard(props: { data: LinkMetadata }) {
       target="_blank"
       rel="noopener noreferrer"
       className="group/embed flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-sori-border-subtle bg-sori-surface-panel shadow-2xl transition hover:border-sori-border-accent hover:bg-sori-surface-hover"
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void openSafeExternalUrl(props.data.url);
+      }}
     >
       {props.data.image && (
         <div className="relative aspect-video w-full overflow-hidden border-b border-sori-border-subtle bg-sori-surface-base">
@@ -1745,12 +1759,24 @@ function renderContentWithLinks(content?: string | null) {
         target="_blank"
         rel="noreferrer"
         className="break-all text-sori-text-strong underline decoration-sori-border-strong underline-offset-2 transition hover:text-sori-accent-primary hover:decoration-sori-accent-primary"
-        onClick={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void openSafeExternalUrl(part);
+        }}
       >
         {part}
       </a>
     );
   });
+}
+
+async function openSafeExternalUrl(url: string) {
+  try {
+    await openExternalUrl(url);
+  } catch {
+    toast.error("Failed to open link.");
+  }
 }
 
 function getCallMessageType(message: Message): CallMessageType | null {

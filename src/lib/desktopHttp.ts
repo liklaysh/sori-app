@@ -17,6 +17,8 @@ interface DesktopUploadFile {
   dataBase64: string;
 }
 
+const SESSION_STORAGE_KEY = "sori-app-session-token";
+
 export function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -88,10 +90,48 @@ export async function getDesktopSessionToken() {
   return invoke<string | null>("desktop_http_session_token");
 }
 
+export async function persistDesktopSession() {
+  if (!isTauriRuntime()) {
+    return;
+  }
+
+  const token = await getDesktopSessionToken().catch(() => null);
+  if (token) {
+    window.localStorage.setItem(SESSION_STORAGE_KEY, token);
+  } else {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  }
+}
+
+export async function restoreDesktopSession() {
+  if (!isTauriRuntime()) {
+    return;
+  }
+
+  const token = window.localStorage.getItem(SESSION_STORAGE_KEY);
+  if (!token) {
+    return;
+  }
+
+  await invoke("desktop_http_set_session_token", { token }).catch(() => {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  });
+}
+
 export function clearDesktopSession() {
   if (!isTauriRuntime()) {
     return;
   }
 
+  window.localStorage.removeItem(SESSION_STORAGE_KEY);
   void invoke("desktop_http_clear_session").catch(() => undefined);
+}
+
+export async function openExternalUrl(url: string) {
+  if (!isTauriRuntime()) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  await invoke("desktop_open_external_url", { url });
 }

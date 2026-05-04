@@ -393,19 +393,14 @@ function SessionControls(props: { mode: VoicePresentation; hideSelfCamera: boole
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
 
   useEffect(() => {
-    if (!isVoiceChannel) return;
     void localParticipant.setMicrophoneEnabled(!isMuted).catch(() => undefined);
-  }, [isMuted, isVoiceChannel, localParticipant]);
+  }, [isMuted, localParticipant]);
 
   const toggleMic = () => {
-    if (isVoiceChannel) {
-      toggleMute();
-      return;
-    }
-    void localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled).catch(() => undefined);
+    toggleMute();
   };
 
-  const muted = isVoiceChannel ? isMuted : !isMicrophoneEnabled;
+  const muted = isMuted || !isMicrophoneEnabled;
 
   useEffect(() => {
     const close = () => {

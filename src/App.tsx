@@ -7,6 +7,7 @@ import { MainShell } from "./screens/MainShell";
 import { useAuthStore } from "./stores/authStore";
 import { useServerStore } from "./stores/serverStore";
 import { useSocketStore } from "./stores/socketStore";
+import { restoreDesktopSession } from "./lib/desktopHttp";
 import { preloadNotificationSounds } from "./lib/notificationSounds";
 import { useT } from "./lib/i18n";
 
@@ -22,7 +23,10 @@ export function App() {
 
   useEffect(() => {
     if (bootstrap) {
-      fetchMe();
+      void (async () => {
+        await restoreDesktopSession();
+        await fetchMe();
+      })();
       preloadNotificationSounds();
     }
   }, [bootstrap, fetchMe]);

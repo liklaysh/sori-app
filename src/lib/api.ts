@@ -1,5 +1,5 @@
 import { useServerStore } from "../stores/serverStore";
-import { clearDesktopSession, desktopHttpRequest, desktopHttpUpload, isTauriRuntime } from "./desktopHttp";
+import { clearDesktopSession, desktopHttpRequest, desktopHttpUpload, isTauriRuntime, persistDesktopSession } from "./desktopHttp";
 import { createRequestId } from "./requestId";
 
 let csrfToken: string | null = null;
@@ -93,6 +93,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
   const data = text ? JSON.parse(text) : null;
   rememberCsrfToken(data);
+  await persistDesktopSession();
 
   if (!ok) {
     const message = data?.error || data?.message || `Request failed: ${status}`;
@@ -138,6 +139,7 @@ export async function uploadFormData<T>(path: string, formData: FormData): Promi
 
   const data = text ? JSON.parse(text) : null;
   rememberCsrfToken(data);
+  await persistDesktopSession();
 
   if (!ok) {
     const message = data?.error || data?.message || `Upload failed: ${status}`;

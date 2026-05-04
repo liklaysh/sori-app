@@ -20,6 +20,7 @@ interface VoiceState {
   leaveChannel: (options?: { silent?: boolean }) => void;
   setOccupants: (channelId: string, occupants: VoiceOccupant[]) => void;
   updateOccupant: (channelId: string, userId: string, data: Partial<VoiceOccupant>) => void;
+  updateUserReferences: (user: { id: string; username?: string | null; avatarUrl?: string | null }) => void;
   toggleMute: () => void;
   toggleDeafen: () => void;
 }
@@ -92,6 +93,19 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         occupant.userId === userId ? { ...occupant, ...data } : occupant
       ))
     }
+  })),
+
+  updateUserReferences: (user) => set((state) => ({
+    occupantsByChannel: Object.fromEntries(
+      Object.entries(state.occupantsByChannel).map(([channelId, occupants]) => [
+        channelId,
+        occupants.map((occupant) => occupant.userId === user.id ? {
+          ...occupant,
+          ...(user.username !== undefined && user.username !== null ? { username: user.username } : {}),
+          ...(user.avatarUrl !== undefined ? { avatarUrl: user.avatarUrl } : {}),
+        } : occupant),
+      ]),
+    ),
   })),
 
   toggleMute: () => {
