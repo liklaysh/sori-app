@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Loader2 } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
 import { ServerConnectScreen } from "./screens/ServerConnectScreen";
@@ -7,9 +8,12 @@ import { MainShell } from "./screens/MainShell";
 import { useAuthStore } from "./stores/authStore";
 import { useServerStore } from "./stores/serverStore";
 import { useSocketStore } from "./stores/socketStore";
-import { restoreDesktopSession } from "./lib/desktopHttp";
+import { isTauriRuntime, restoreDesktopSession } from "./lib/desktopHttp";
+import { checkForAppUpdate } from "./lib/appUpdater";
 import { preloadNotificationSounds } from "./lib/notificationSounds";
 import { useT } from "./lib/i18n";
+
+let autoUpdateCheckStarted = false;
 
 export function App() {
   const t = useT();
@@ -30,6 +34,37 @@ export function App() {
       preloadNotificationSounds();
     }
   }, [bootstrap, fetchMe]);
+
+  useEffect(() => {
+    if (!bootstrap || autoUpdateCheckStarted) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (autoUpdateCheckStarted) {
+        return;
+      }
+      autoUpdateCheckStarted = true;
+      void checkForAppUpdate(t);
+    }, 8000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [bootstrap, t]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    let unlisten: (() => void) | undefined;
+    void listen("sori-tray-check-updates", () => {
+      void checkForAppUpdate(t, { manual: true });
+    }).then((cleanup) => {
+      unlisten = cleanup;
+    });
+
+    return () => unlisten?.();
+  }, [t]);
 
   useEffect(() => {
     if (bootstrap && user) {

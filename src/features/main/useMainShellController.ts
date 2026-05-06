@@ -8,8 +8,8 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useSocketStore } from "../../stores/socketStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useT } from "../../lib/i18n";
-import type { Channel, DMConversation, Member, SoriUser, VoiceOccupant } from "../../types/sori";
-import type { MemberMenuState, VoiceVolumeMenuState } from "./MainShellViews";
+import type { Channel, DMConversation, Member, Message, SoriUser, VoiceOccupant } from "../../types/sori";
+import type { MemberMenuState, MessageActionMenuState, VoiceVolumeMenuState } from "./MainShellViews";
 import { loadCollapsedCategories, saveCollapsedCategories } from "./mainShellStorage";
 import { useMainSocketEvents } from "./useMainSocketEvents";
 
@@ -17,6 +17,8 @@ export function useMainShellController() {
   const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [memberMenu, setMemberMenu] = useState<MemberMenuState>(null);
+  const [messageActionMenu, setMessageActionMenu] = useState<MessageActionMenuState>(null);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [voiceVolumeMenu, setVoiceVolumeMenu] = useState<VoiceVolumeMenuState>(null);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => loadCollapsedCategories());
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
@@ -48,6 +50,7 @@ export function useMainShellController() {
   const startConversation = useChatStore((state) => state.startConversation);
   const sendActiveMessage = useChatStore((state) => state.sendActiveMessage);
   const addIncomingMessage = useChatStore((state) => state.addIncomingMessage);
+  const updateReaction = useChatStore((state) => state.updateReaction);
   const addCallLog = useChatStore((state) => state.addCallLog);
   const upsertConversation = useChatStore((state) => state.upsertConversation);
   const setTyping = useChatStore((state) => state.setTyping);
@@ -99,6 +102,7 @@ export function useMainShellController() {
     channelMessagePopups,
     directMessagePopups,
     addIncomingMessage,
+    updateReaction,
     addCallLog,
     upsertConversation,
     receiveIncomingCall,
@@ -118,6 +122,7 @@ export function useMainShellController() {
     channelMessagePopups,
     directMessagePopups,
     addIncomingMessage,
+    updateReaction,
     addCallLog,
     upsertConversation,
     receiveIncomingCall,
@@ -167,6 +172,7 @@ export function useMainShellController() {
   useEffect(() => {
     const close = () => {
       setMemberMenu(null);
+      setMessageActionMenu(null);
       setVoiceVolumeMenu(null);
     };
     window.addEventListener("click", close);
@@ -263,6 +269,24 @@ export function useMainShellController() {
     setVoiceVolumeMenu({ occupant, x: event.clientX, y: event.clientY });
   };
 
+  const openMessageActionMenu = (message: Message, event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMemberMenu(null);
+    setVoiceVolumeMenu(null);
+    setMessageActionMenu({ message, x: event.clientX, y: event.clientY });
+  };
+
+  const toggleMessageReaction = (message: Message, emoji: string) => {
+    if (!socket || !user || !message.channelId) {
+      return;
+    }
+
+    const hasReaction = (message.reactions || []).some((reaction) => reaction.emoji === emoji && reaction.userId === user.id);
+    socket.emit(hasReaction ? "remove_reaction" : "add_reaction", { messageId: message.id, emoji });
+    updateReaction(message.id, emoji, user.id, hasReaction ? "remove" : "add");
+  };
+
   const emitTyping = (isTyping: boolean) => {
     if (activeMode === "channel" && activeChannel?.type === "text" && activeChannelId) {
       socket?.emit("typing", { channelId: activeChannelId, isTyping });
@@ -275,6 +299,10 @@ export function useMainShellController() {
     setSettingsOpen,
     memberMenu,
     setMemberMenu,
+    messageActionMenu,
+    setMessageActionMenu,
+    replyTo,
+    setReplyTo,
     voiceVolumeMenu,
     setVoiceVolumeMenu,
     collapsedCategories,
@@ -332,6 +360,8 @@ export function useMainShellController() {
     toggleCategory,
     handleSelectChannel,
     openVoiceVolumeMenu,
+    openMessageActionMenu,
+    toggleMessageReaction,
     emitTyping
   };
 }

@@ -100,6 +100,8 @@ export interface Message {
   createdAt: number | string;
   isEdited?: boolean;
   isDeleted?: boolean;
+  parentId?: string | null;
+  parent?: Message | null;
   attachments?: Attachment[] | null;
   attachment?: Attachment | null;
   type?: string;

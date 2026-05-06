@@ -6,6 +6,13 @@ use std::process::Command;
 use std::sync::Mutex;
 use tauri::State;
 
+#[cfg(target_os = "windows")]
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, WindowEvent,
+};
+
 struct DesktopHttpState {
     client: reqwest::Client,
     session_token: Mutex<Option<String>>,
@@ -261,10 +268,97 @@ fn desktop_open_external_url(url: String) -> Result<(), String> {
         })
 }
 
+#[cfg(target_os = "windows")]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn setup_windows_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "tray_open", "Open", true, None::<&str>)?;
+    let mute = MenuItem::with_id(app, "tray_toggle_mute", "Mute / Unmute", true, None::<&str>)?;
+    let disconnect = MenuItem::with_id(app, "tray_disconnect_voice", "Disconnect from voice", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "tray_settings", "Settings", true, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "tray_check_updates", "Check for updates", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "tray_quit", "Quit / Закрыть", true, None::<&str>)?;
+    let separator_one = PredefinedMenuItem::separator(app)?;
+    let separator_two = PredefinedMenuItem::separator(app)?;
+
+    let menu = Menu::with_items(
+        app,
+        &[
+            &open,
+            &separator_one,
+            &mute,
+            &disconnect,
+            &settings,
+            &updates,
+            &separator_two,
+            &quit,
+        ],
+    )?;
+
+    let mut tray = TrayIconBuilder::with_id("sori-tray")
+        .menu(&menu)
+        .tooltip("SORI App")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "tray_open" => show_main_window(app),
+            "tray_toggle_mute" => {
+                let _ = app.emit("sori-tray-toggle-mute", ());
+            }
+            "tray_disconnect_voice" => {
+                let _ = app.emit("sori-tray-disconnect-voice", ());
+            }
+            "tray_settings" => {
+                show_main_window(app);
+                let _ = app.emit("sori-tray-open-settings", ());
+            }
+            "tray_check_updates" => {
+                let _ = app.emit("sori-tray-check-updates", ());
+            }
+            "tray_quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| match event {
+            TrayIconEvent::DoubleClick { .. }
+            | TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } => show_main_window(tray.app_handle()),
+            _ => {}
+        });
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray = tray.icon(icon);
+    }
+
+    tray.build(app)?;
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .setup(|_app| {
+            #[cfg(target_os = "windows")]
+            setup_windows_tray(_app)?;
+            Ok(())
+        })
+        .on_window_event(|_window, _event| {
+            #[cfg(target_os = "windows")]
+            if let WindowEvent::CloseRequested { api, .. } = _event {
+                api.prevent_close();
+                let _ = _window.hide();
+            }
+        })
         .manage(DesktopHttpState::new())
         .invoke_handler(tauri::generate_handler![
             desktop_http_request,

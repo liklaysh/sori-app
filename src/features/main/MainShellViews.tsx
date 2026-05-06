@@ -24,6 +24,7 @@ import {
   Phone,
   PhoneMissed,
   PhoneOff,
+  Reply,
   Search,
   Send,
   Settings,
@@ -31,6 +32,7 @@ import {
   SlidersHorizontal,
   Smile,
   Save,
+  UploadCloud,
   UserRound,
   Volume2,
   Waves,
@@ -48,6 +50,7 @@ import type { Attachment, Channel, ChatItem, DMConversation, LinkMetadata, Membe
 const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
 export type MemberMenuState = { member: Member; x: number; y: number } | null;
+export type MessageActionMenuState = { message: Message; x: number; y: number } | null;
 export type VoiceVolumeMenuState = { occupant: VoiceOccupant; x: number; y: number } | null;
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
 const linkPreviewCache = new Map<string, LinkMetadata | null>();
@@ -265,7 +268,7 @@ export function VoiceOccupantRow(props: { occupant: VoiceOccupant; showActivity:
         <span className={cn(
           "grid h-6 w-6 place-items-center overflow-hidden rounded-full border text-[9px] font-black transition-all group-hover:scale-105",
           speaking
-            ? "speaking-pulse scale-110 bg-sori-surface-base text-sori-text-strong"
+            ? "speaking-pulse bg-sori-surface-base text-sori-text-strong"
             : "border-sori-border-subtle bg-sori-surface-elevated text-sori-text-muted"
         )}>
           {props.occupant.avatarUrl ? (
@@ -706,6 +709,56 @@ export function MemberContextMenu(props: {
   );
 }
 
+export function MessageActionMenu(props: {
+  menu: Exclude<MessageActionMenuState, null>;
+  currentUser: SoriUser | null;
+  onReply: () => void;
+  onCopy: () => void;
+  onReaction: (emoji: string) => void;
+  t: ReturnType<typeof useT>;
+}) {
+  const canReact = Boolean(props.menu.message.channelId && !props.menu.message.isDeleted);
+  const currentUserReactions = new Set(
+    (props.menu.message.reactions || [])
+      .filter((reaction) => reaction.userId === props.currentUser?.id)
+      .map((reaction) => reaction.emoji)
+  );
+
+  return (
+    <div
+      className="fixed z-[80] min-w-[220px] animate-in zoom-in-95 rounded-2xl border border-sori-border-subtle bg-sori-surface-panel py-2 shadow-2xl shadow-black ring-1 ring-sori-border-subtle"
+      style={floatingMenuPosition(props.menu.x, props.menu.y, 260, canReact ? 220 : 120)}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <MenuAction icon={<Reply className="h-4 w-4" />} label={props.t.reply} onClick={props.onReply} />
+      <MenuAction icon={<Copy className="h-4 w-4" />} label={props.t.copyMessage} onClick={props.onCopy} />
+      {canReact && (
+        <>
+          <div className="mx-2 my-1 h-px bg-sori-border-subtle" />
+          <div className="px-4 py-2 text-[9px] font-black uppercase tracking-widest text-sori-text-dim">
+            {props.t.reactions}
+          </div>
+          <div className="flex justify-between gap-1 px-4 py-1.5">
+            {["👍", "❤️", "😂", "😮", "😢", "🔥"].map((emoji) => (
+              <button
+                type="button"
+                key={emoji}
+                className={cn(
+                  "rounded-lg p-1 text-xl transition-all hover:scale-125 active:scale-90",
+                  currentUserReactions.has(emoji) ? "bg-sori-surface-accent-subtle ring-1 ring-sori-border-accent" : "hover:bg-sori-surface-hover"
+                )}
+                onClick={() => props.onReaction(emoji)}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function VoiceVolumeMenu(props: {
   menu: Exclude<VoiceVolumeMenuState, null>;
   volume: number;
@@ -1068,7 +1121,14 @@ function DeafenIcon(props: { active: boolean; className?: string }) {
   );
 }
 
-export function MessageList(props: { items: ChatItem[]; currentUser: SoriUser | null; emptyText: string; t: ReturnType<typeof useT> }) {
+export function MessageList(props: {
+  items: ChatItem[];
+  currentUser: SoriUser | null;
+  emptyText: string;
+  t: ReturnType<typeof useT>;
+  onMessageContextMenu?: (message: Message, event: MouseEvent) => void;
+  onReaction?: (message: Message, emoji: string) => void;
+}) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -1109,7 +1169,13 @@ export function MessageList(props: { items: ChatItem[]; currentUser: SoriUser | 
             return (
               <div key={message.id}>
                 {showDate && <DateDivider label={formatDateLabel(message.createdAt)} />}
-                <MessageRow message={message} currentUser={props.currentUser} t={props.t} />
+                <MessageRow
+                  message={message}
+                  currentUser={props.currentUser}
+                  t={props.t}
+                  onContextMenu={props.onMessageContextMenu}
+                  onReaction={props.onReaction}
+                />
               </div>
             );
           })}
@@ -1131,7 +1197,13 @@ export function DateDivider(props: { label: string }) {
   );
 }
 
-export function MessageRow(props: { message: Message; currentUser: SoriUser | null; t: ReturnType<typeof useT> }) {
+export function MessageRow(props: {
+  message: Message;
+  currentUser: SoriUser | null;
+  t: ReturnType<typeof useT>;
+  onContextMenu?: (message: Message, event: MouseEvent) => void;
+  onReaction?: (message: Message, emoji: string) => void;
+}) {
   const message = props.message;
   const isOwn = message.authorId === props.currentUser?.id;
   const authorName = message.author?.username || message.username || (isOwn ? props.currentUser?.username || props.t.you : props.t.deletedUser);
@@ -1140,8 +1212,19 @@ export function MessageRow(props: { message: Message; currentUser: SoriUser | nu
   const [lightboxAttachment, setLightboxAttachment] = useState<Attachment | null>(null);
   const callType = getCallMessageType(message);
 
+  const groupedReactions = (message.reactions || []).reduce((acc, reaction) => {
+    acc[reaction.emoji] = acc[reaction.emoji] || { count: 0, mine: false };
+    acc[reaction.emoji].count += 1;
+    if (reaction.userId === props.currentUser?.id) acc[reaction.emoji].mine = true;
+    return acc;
+  }, {} as Record<string, { count: number; mine: boolean }>);
+
   return (
-    <div id={`msg-${message.id}`} className={cn("group flex flex-col gap-1 py-1", isOwn ? "items-end" : "items-start")}>
+    <div
+      id={`msg-${message.id}`}
+      className={cn("group flex flex-col gap-1 py-1", isOwn ? "items-end" : "items-start")}
+      onContextMenu={(event) => props.onContextMenu?.(message, event)}
+    >
       <div className={cn("flex max-w-full gap-3", isOwn && "flex-row-reverse")}>
         <Avatar name={authorName} src={avatarUrl} />
         <div className={cn("flex min-w-0 max-w-[min(42rem,calc(100vw-22rem))] flex-col", isOwn ? "items-end" : "items-start")}>
@@ -1182,6 +1265,27 @@ export function MessageRow(props: { message: Message; currentUser: SoriUser | nu
 
             {!message.isDeleted && (
               <MessageLinkPreviews message={message} />
+            )}
+
+            {Object.keys(groupedReactions).length > 0 && !message.isDeleted && (
+              <div className={cn("mt-1.5 flex flex-wrap gap-1.5", isOwn ? "justify-end" : "justify-start")}>
+                {Object.entries(groupedReactions).map(([emoji, reaction]) => (
+                  <button
+                    type="button"
+                    key={emoji}
+                    className={cn(
+                      "flex items-center gap-1 rounded-lg border px-1.5 py-0.5 transition-colors",
+                      reaction.mine
+                        ? "border-sori-border-accent bg-sori-surface-accent-subtle"
+                        : "border-sori-border-subtle bg-sori-surface-panel hover:bg-sori-surface-hover"
+                    )}
+                    onClick={() => props.onReaction?.(message, emoji)}
+                  >
+                    <span className="text-xs">{emoji}</span>
+                    <span className="text-[9px] font-black text-sori-text-dim">{reaction.count}</span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -1357,6 +1461,10 @@ function EmbedCard(props: { data: LinkMetadata }) {
     // Keep the raw URL when metadata is malformed.
   }
 
+  if (!props.data.isPrivate && props.data.title === "Preview Unavailable") {
+    return null;
+  }
+
   if (props.data.isPrivate) {
     return (
       <div className="flex max-w-sm items-center gap-4 rounded-2xl border-2 border-dashed border-sori-border-danger bg-sori-surface-panel p-4">
@@ -1431,13 +1539,17 @@ export function MessageComposer(props: {
   uploadingLabel: string;
   typingUser?: string | null;
   typingLabel: string;
+  t: ReturnType<typeof useT>;
+  replyTo?: Message | null;
+  onClearReply?: () => void;
   onTypingChange?: (isTyping: boolean) => void;
-  onSend: (content: string, attachments?: Attachment[]) => Promise<void>;
+  onSend: (content: string, attachments?: Attachment[], parentId?: string | null) => Promise<void>;
 }) {
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const typingStopTimeoutRef = useRef<number | null>(null);
   const lastTypingEmitAtRef = useRef(0);
 
@@ -1455,7 +1567,9 @@ export function MessageComposer(props: {
     setAttachments([]);
     setShowEmojiPicker(false);
     props.onTypingChange?.(false);
-    await props.onSend(value, attachments);
+    const parentId = props.replyTo?.id || null;
+    props.onClearReply?.();
+    await props.onSend(value, attachments, parentId);
   };
 
   const handleInputChange = (value: string) => {
@@ -1481,11 +1595,12 @@ export function MessageComposer(props: {
     }, 1200);
   };
 
-  const handleFiles = async (files: FileList | null) => {
-    if (!files?.length) return;
+  const handleFiles = async (files: FileList | File[] | null) => {
+    const queue = Array.from(files || []).slice(0, 10);
+    if (queue.length === 0) return;
     setUploading(true);
     try {
-      const uploaded = await Promise.all(Array.from(files).slice(0, 10).map(uploadAttachment));
+      const uploaded = await Promise.all(queue.map(uploadAttachment));
       setAttachments((current) => [...current, ...uploaded].slice(0, 10));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload failed.");
@@ -1495,10 +1610,57 @@ export function MessageComposer(props: {
   };
 
   return (
-    <footer className="shrink-0 bg-sori-surface-base px-3 pb-3">
+    <footer
+      className="relative shrink-0 bg-sori-surface-base px-3 pb-3"
+      onDragEnter={(event) => {
+        event.preventDefault();
+        setDragActive(true);
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragActive(true);
+      }}
+      onDragLeave={(event) => {
+        event.preventDefault();
+        if (event.currentTarget === event.target) setDragActive(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragActive(false);
+        void handleFiles(event.dataTransfer.files);
+      }}
+      onPaste={(event) => {
+        const files = Array.from(event.clipboardData.files || []);
+        if (files.length === 0) return;
+        event.preventDefault();
+        void handleFiles(files);
+      }}
+    >
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[90] flex min-h-32 flex-col items-center justify-center rounded-3xl border-2 border-dashed border-sori-border-accent bg-sori-surface-main/95 shadow-2xl">
+          <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary">
+            <UploadCloud className="h-6 w-6" />
+          </div>
+          <div className="text-sm font-black uppercase tracking-widest text-sori-text-strong">{props.t.dropFiles}</div>
+          <div className="mt-1 text-xs font-bold text-sori-text-muted">{props.t.dropFilesDescription}</div>
+        </div>
+      )}
       {props.typingUser && (
         <div className="mx-auto mb-2 w-full max-w-[76rem] px-3 text-[11px] font-bold text-sori-text-muted">
           {props.typingLabel.replace("{name}", props.typingUser)}
+        </div>
+      )}
+      {props.replyTo && (
+        <div className="mx-auto mb-3 flex w-full max-w-[76rem] items-center justify-between rounded-r-2xl border-l-4 border-sori-accent-primary bg-sori-surface-panel p-3 animate-in slide-in-from-bottom-2">
+          <div className="min-w-0">
+            <div className="text-[9px] font-black uppercase tracking-widest text-sori-accent-primary">
+              {props.t.replyingTo.replace("{name}", props.replyTo.author?.username || props.replyTo.username || props.t.deletedUser)}
+            </div>
+            <div className="mt-0.5 truncate text-xs font-medium text-sori-text-muted">{props.replyTo.content || props.replyTo.attachments?.[0]?.fileName || props.t.attach}</div>
+          </div>
+          <button type="button" className="grid h-8 w-8 place-items-center rounded-full text-sori-text-muted transition hover:bg-sori-surface-hover hover:text-sori-text-strong" onClick={props.onClearReply}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
       {attachments.length > 0 && (

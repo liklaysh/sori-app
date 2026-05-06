@@ -57,3 +57,9 @@ Desktop test builds:
 4. Download artifact `sori-app-windows-installer` or `sori-app-macos-dmg`.
 
 First-run smoke test checklist: [docs/TESTING.md](docs/TESTING.md).
+
+## Updates
+
+SORI App checks for new versions through GitHub Releases. When an update is available, the app shows an in-app notification and lets the user install it now or later.
+
+Updates install over the current version and keep user data intact. During the early test phase, macOS or Windows may show a warning because builds are not yet signed with paid OS certificates.

@@ -1,15 +1,18 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import type { MouseEvent } from "react";
-import { Loader2 } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import { toast } from "sonner";
 import { DirectCallOverlay } from "../components/DirectCallOverlay";
 import { SettingsPanel } from "../components/SettingsPanel";
 import { userToCallPeer } from "../stores/directCallStore";
+import { isTauriRuntime } from "../lib/desktopHttp";
 import { useMainShellController } from "../features/main/useMainShellController";
 import {
   ChannelSidebar,
   ChatHeader,
   DMSidebar,
   MemberContextMenu,
+  MessageActionMenu,
   MemberSidebar,
   MessageComposer,
   MessageList,
@@ -40,6 +43,46 @@ export function MainShell() {
       t={state.t}
     />
   );
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    const cleanups: Array<() => void> = [];
+    let disposed = false;
+
+    const register = async () => {
+      const listeners = await Promise.all([
+        listen("sori-tray-open-settings", () => {
+          state.setSettingsOpen(true);
+        }),
+        listen("sori-tray-toggle-mute", () => {
+          if (state.connectedChannelId || state.directCallStatus === "connected") {
+            state.toggleMute();
+          }
+        }),
+        listen("sori-tray-disconnect-voice", () => {
+          if (state.connectedChannelId) {
+            state.leaveVoiceChannel();
+          }
+        })
+      ]);
+
+      if (disposed) {
+        listeners.forEach((cleanup) => cleanup());
+      } else {
+        cleanups.push(...listeners);
+      }
+    };
+
+    void register();
+
+    return () => {
+      disposed = true;
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [state.connectedChannelId, state.directCallStatus, state.leaveVoiceChannel, state.setSettingsOpen, state.toggleMute]);
 
   return (
     <main className="flex h-full overflow-hidden bg-sori-surface-base text-sori-text-primary">
@@ -104,12 +147,7 @@ export function MainShell() {
         )}
 
         {state.loading ? (
-          <div className="grid flex-1 place-items-center">
-            <div className="flex items-center gap-3 text-sm font-bold text-sori-text-muted">
-              <Loader2 className="h-5 w-5 animate-spin text-sori-accent-primary" />
-              {state.t.loadingChat}
-            </div>
-          </div>
+          <ChatLoadingSkeleton label={state.t.loadingChat} />
         ) : (
           <>
             {showDirectCallRoom ? (
@@ -152,6 +190,8 @@ export function MainShell() {
                 currentUser={state.user}
                 emptyText={state.messageSearchQuery.trim() ? state.t.noSearchResults : state.t.noMessages}
                 t={state.t}
+                onMessageContextMenu={state.openMessageActionMenu}
+                onReaction={state.toggleMessageReaction}
               />
             )}
 
@@ -164,6 +204,9 @@ export function MainShell() {
                 uploadingLabel={state.t.uploading}
                 typingUser={state.typingUser}
                 typingLabel={state.t.typingMessage}
+                t={state.t}
+                replyTo={state.replyTo}
+                onClearReply={() => state.setReplyTo(null)}
                 onTypingChange={state.emitTyping}
                 onSend={state.sendActiveMessage}
               />
@@ -205,6 +248,27 @@ export function MainShell() {
           t={state.t}
         />
       )}
+      {state.messageActionMenu && (
+        <MessageActionMenu
+          menu={state.messageActionMenu}
+          currentUser={state.user}
+          t={state.t}
+          onReply={() => {
+            state.setReplyTo(state.messageActionMenu!.message);
+            state.setMessageActionMenu(null);
+          }}
+          onCopy={() => {
+            void navigator.clipboard?.writeText(state.messageActionMenu!.message.content || "").then(() => {
+              toast.success(state.t.messageCopied);
+            });
+            state.setMessageActionMenu(null);
+          }}
+          onReaction={(emoji) => {
+            state.toggleMessageReaction(state.messageActionMenu!.message, emoji);
+            state.setMessageActionMenu(null);
+          }}
+        />
+      )}
 
       {(state.connectedChannelId || state.directCallStatus === "connected") && !showVoiceRoom && !showDirectCallRoom && (
         <Suspense fallback={null}>
@@ -217,5 +281,26 @@ export function MainShell() {
       />
       <SettingsPanel open={state.settingsOpen} onClose={() => state.setSettingsOpen(false)} />
     </main>
+  );
+}
+
+function ChatLoadingSkeleton(props: { label: string }) {
+  return (
+    <div className="flex flex-1 flex-col gap-6 overflow-hidden bg-sori-surface-base px-8 py-8">
+      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-sori-text-dim">{props.label}</div>
+      {[0, 1, 2, 3, 4, 5].map((item) => (
+        <div key={item} className="flex max-w-3xl gap-4">
+          <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-sori-surface-elevated" />
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-28 animate-pulse rounded-full bg-sori-surface-elevated" />
+              <div className="h-2.5 w-12 animate-pulse rounded-full bg-sori-surface-panel" />
+            </div>
+            <div className="h-4 w-3/4 animate-pulse rounded-full bg-sori-surface-panel" />
+            <div className="h-4 w-1/2 animate-pulse rounded-full bg-sori-surface-panel" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

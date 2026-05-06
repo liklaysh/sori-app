@@ -339,7 +339,7 @@ function ParticipantTile(props: { trackRef: TrackReferenceOrPlaceholder; large?:
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div className={cn(
             "relative grid place-items-center overflow-hidden rounded-full bg-sori-surface-accent-subtle font-black text-sori-accent-primary shadow-2xl transition-all duration-300",
-            participant.isSpeaking ? "speaking-pulse scale-110" : "border border-sori-border-subtle",
+            participant.isSpeaking ? "speaking-pulse" : "border border-sori-border-subtle",
             props.large ? "h-32 w-32 text-5xl" : "h-24 w-24 text-4xl"
           )}>
             {avatarUrl ? <img src={avatarUrl} alt={name} className="h-full w-full object-cover" /> : initial}
@@ -349,7 +349,6 @@ function ParticipantTile(props: { trackRef: TrackReferenceOrPlaceholder; large?:
       )}
 
       <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl border border-sori-border-subtle bg-sori-surface-panel px-3 py-1.5 shadow-lg">
-        {participant.isSpeaking && <span className="h-2 w-2 rounded-full bg-sori-accent-success animate-pulse" />}
         <span className="text-[11px] font-black uppercase tracking-wide text-white">{name}</span>
         {participant.isLocal && <span className="rounded-md border border-sori-border-subtle bg-sori-surface-hover px-1.5 py-0.5 text-[8px] font-bold text-sori-text-strong">{t.you}</span>}
       </div>

@@ -79,21 +79,9 @@ textarea {
   scrollbar-width: none;
 }
 
-@keyframes pulse-speaking {
-  0% {
-    border-color: #6df5e1;
-    box-shadow: 0 0 0 2px #6df5e1;
-  }
-
-  100% {
-    border-color: #6df5e1;
-    box-shadow: 0 0 0 0 #6df5e1;
-  }
-}
-
 .speaking-pulse {
-  animation: pulse-speaking 1s infinite alternate;
   border: 2px solid #6df5e1 !important;
+  box-shadow: 0 0 0 2px rgba(109, 245, 225, 0.28), 0 0 18px rgba(109, 245, 225, 0.18);
 }
 
 .sori-toast {

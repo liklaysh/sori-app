@@ -71,6 +71,19 @@ The first macOS test build is unsigned. macOS Gatekeeper may warn on first launc
 
 The project already keeps Tauri bundle targets platform-neutral through `"targets": "all"`, so each runner can emit the artifacts supported by its operating system.
 
+## Application Updates
+
+SORI App checks for new desktop versions published through GitHub Releases. When a newer version is available, the app shows an in-app notification with two choices:
+
+- update now
+- remind later
+
+If the user chooses to update, the app downloads the new version, installs it over the current one, and restarts. User data and the selected SORI server remain in place.
+
+Updates are versioned as product releases, for example `0.1.1`, `0.1.2`, and later patch versions. Internet access is only required while checking for and downloading the update.
+
+During the early development phase, Windows or macOS may show a security warning because the app is not signed with a paid operating-system certificate yet. This is expected for the current test builds.
+
 ## Window and Platform Policy
 
 The Tauri window is configured with native decorations enabled by default. At runtime:

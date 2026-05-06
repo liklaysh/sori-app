@@ -23,8 +23,9 @@ interface ChatState {
   loadInitialData: () => Promise<void>;
   selectChannel: (channelId: string) => Promise<void>;
   selectConversation: (conversationId: string) => Promise<void>;
-  sendActiveMessage: (content: string, attachments?: Attachment[]) => Promise<void>;
+  sendActiveMessage: (content: string, attachments?: Attachment[], parentId?: string | null) => Promise<void>;
   addIncomingMessage: (message: Message) => void;
+  updateReaction: (messageId: string, emoji: string, userId: string, action: "add" | "remove") => void;
   addCallLog: (log: ChatItem) => void;
   upsertConversation: (conversation: DMConversation) => void;
   startConversation: (targetUserId: string) => Promise<DMConversation | null>;
@@ -160,7 +161,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
-  sendActiveMessage: async (content, attachments = []) => {
+  sendActiveMessage: async (content, attachments = [], parentId = null) => {
     const trimmed = content.trim();
     if ((!trimmed && attachments.length === 0) || get().sending) {
       return;
@@ -172,13 +173,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (activeMode === "channel" && activeChannelId) {
         const message = await apiRequest<Message>(`/channels/${activeChannelId}/messages`, {
           method: "POST",
-          body: JSON.stringify({ content: trimmed, attachments })
+          body: JSON.stringify({ content: trimmed, attachments, parentId })
         });
         get().addIncomingMessage(message);
       } else if (activeMode === "dm" && activeConversationId) {
         const message = await apiRequest<Message>(`/dm/conversations/${activeConversationId}/messages`, {
           method: "POST",
-          body: JSON.stringify({ content: trimmed, attachments })
+          body: JSON.stringify({ content: trimmed, attachments, parentId })
         });
         get().addIncomingMessage(message);
       }
@@ -225,6 +226,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
         : state.conversations
     };
   }),
+
+  updateReaction: (messageId, emoji, userId, action) => set((state) => ({
+    messagesByContext: Object.fromEntries(
+      Object.entries(state.messagesByContext).map(([contextKey, messages]) => [
+        contextKey,
+        messages.map((item) => {
+          if (item.id !== messageId || item.type === "system_call") {
+            return item;
+          }
+
+          const message = item as Message;
+          const reactions = message.reactions || [];
+          const exists = reactions.some((reaction) => reaction.emoji === emoji && reaction.userId === userId);
+          const nextReactions = action === "add"
+            ? exists
+              ? reactions
+              : [...reactions, { emoji, userId }]
+            : reactions.filter((reaction) => !(reaction.emoji === emoji && reaction.userId === userId));
+
+          return { ...message, reactions: nextReactions };
+        }),
+      ]),
+    ),
+  })),
 
   addCallLog: (log) => set((state) => {
     const conversationId = (log as { conversationId?: string }).conversationId;

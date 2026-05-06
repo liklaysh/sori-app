@@ -9,6 +9,7 @@ import { useServerStore } from "../stores/serverStore";
 import { useSocketStore } from "../stores/socketStore";
 import { useSettingsStore, type AppLanguage, type NotificationSettingKey } from "../stores/settingsStore";
 import { apiRequest } from "../lib/api";
+import { checkForAppUpdate } from "../lib/appUpdater";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { uploadAttachment } from "../lib/upload";
@@ -67,6 +68,9 @@ export function SettingsPanel(props: { open: boolean; onClose: () => void }) {
             <div className="mt-4">
               <VersionLine />
             </div>
+            <div className="mt-3">
+              <AppUpdateButton />
+            </div>
           </div>
         </aside>
 
@@ -87,6 +91,36 @@ export function SettingsPanel(props: { open: boolean; onClose: () => void }) {
         </main>
       </div>
     </div>
+  );
+}
+
+function AppUpdateButton() {
+  const t = useT();
+  const [checking, setChecking] = useState(false);
+
+  async function handleCheck() {
+    if (checking) {
+      return;
+    }
+
+    setChecking(true);
+    try {
+      await checkForAppUpdate(t, { manual: true });
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sori-border-subtle bg-sori-surface-elevated px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-sori-text-muted transition hover:border-sori-accent-primary/60 hover:text-sori-text-strong disabled:cursor-wait disabled:opacity-70"
+      onClick={handleCheck}
+      disabled={checking}
+    >
+      {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+      {t.checkForUpdates}
+    </button>
   );
 }
 

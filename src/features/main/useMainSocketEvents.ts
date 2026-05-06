@@ -15,6 +15,7 @@ interface MainSocketEventsOptions {
   channelMessagePopups: boolean;
   directMessagePopups: boolean;
   addIncomingMessage: (message: Message) => void;
+  updateReaction: (messageId: string, emoji: string, userId: string, action: "add" | "remove") => void;
   addCallLog: (log: any) => void;
   upsertConversation: (conversation: DMConversation) => void;
   receiveIncomingCall: (callId: string, caller: SoriUser) => void;
@@ -82,6 +83,12 @@ export function useMainSocketEvents(options: MainSocketEventsOptions) {
 
     options.socket.on("new_message", handleMessage);
     options.socket.on("new_direct_message", handleMessage);
+    options.socket.on("reaction_added", (data: { messageId: string; emoji: string; userId: string }) => {
+      options.updateReaction(data.messageId, data.emoji, data.userId, "add");
+    });
+    options.socket.on("reaction_removed", (data: { messageId: string; emoji: string; userId: string }) => {
+      options.updateReaction(data.messageId, data.emoji, data.userId, "remove");
+    });
     options.socket.on("new_call_log", options.addCallLog);
     options.socket.on("dm_conversation_updated", handleConversation);
     options.socket.on("incoming_call", handleIncomingCall);
@@ -114,6 +121,8 @@ export function useMainSocketEvents(options: MainSocketEventsOptions) {
     return () => {
       options.socket?.off("new_message", handleMessage);
       options.socket?.off("new_direct_message", handleMessage);
+      options.socket?.off("reaction_added");
+      options.socket?.off("reaction_removed");
       options.socket?.off("new_call_log", options.addCallLog);
       options.socket?.off("dm_conversation_updated", handleConversation);
       options.socket?.off("incoming_call", handleIncomingCall);
