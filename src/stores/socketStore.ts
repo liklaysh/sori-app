@@ -2,10 +2,38 @@ import { create } from "zustand";
 import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
 import { useServerStore } from "./serverStore";
+import { useSettingsStore } from "./settingsStore";
 import { createRequestId } from "../lib/requestId";
 import { getDesktopSessionToken } from "../lib/desktopHttp";
 
 type SocketStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
+
+let reconnectToastId: string | number | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getRealtimeLabels() {
+  return useSettingsStore.getState().language === "ru"
+    ? {
+      reconnecting: "Соединение прервано. Переподключаемся...",
+      failed: "Ошибка realtime-соединения."
+    }
+    : {
+      reconnecting: "Connection interrupted. Reconnecting...",
+      failed: "Realtime connection failed."
+    };
+}
+
+function clearReconnectNotice() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  if (reconnectToastId !== null) {
+    toast.dismiss(reconnectToastId);
+    reconnectToastId = null;
+  }
+}
 
 interface SocketState {
   socket: Socket | null;
@@ -50,20 +78,26 @@ export const useSocketStore = create<SocketState>((set, get) => ({
 
       socket.on("connect", () => {
         set({ socket, status: "connected" });
+        clearReconnectNotice();
         socket.emit("get_voice_state");
-        toast.success("Connected to SORI realtime.");
       });
 
       socket.on("disconnect", (reason) => {
         set({ status: "disconnected" });
-        if (reason !== "io client disconnect") {
-          toast.warning("Realtime connection lost. Reconnecting...");
+        if (reason !== "io client disconnect" && !reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            if (!socket.connected && reconnectToastId === null) {
+              reconnectToastId = toast.loading(getRealtimeLabels().reconnecting);
+            }
+          }, 2500);
         }
       });
 
       socket.on("connect_error", (error) => {
         set({ status: "error" });
-        toast.error(error.message || "Realtime connection failed.");
+        clearReconnectNotice();
+        toast.error(error.message || getRealtimeLabels().failed);
       });
 
       socket.on("initial_presence", (userIds: string[]) => {
@@ -88,6 +122,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
   },
 
   disconnect: () => {
+    clearReconnectNotice();
     get().socket?.disconnect();
     set({ socket: null, status: "idle", onlineUsers: new Set() });
   }

@@ -1,9 +1,16 @@
-import { AudioTrack, isTrackReference, LiveKitRoom, useLocalParticipant, useTracks, VideoTrack } from "@livekit/components-react";
+import { AudioTrack, isTrackReference, LiveKitRoom, useLocalParticipant, useRemoteParticipants, useRoomContext, useTracks, VideoTrack } from "@livekit/components-react";
 import type { TrackReferenceOrPlaceholder } from "@livekit/components-react";
-import { ParticipantEvent, Track } from "livekit-client";
+import { ConnectionState, ParticipantEvent, RoomEvent, Track } from "livekit-client";
 import { ChevronDown, Headphones, Mic, MicOff, Monitor, Phone, PhoneOff, ScreenShare, StopCircle, Video, VideoOff, Waves } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  buildTelemetrySnapshot,
+  collectReportMetrics,
+  getParticipantAudioReport,
+  getWorstConnectionQuality,
+  type StatsBaselineMap,
+} from "../lib/callTelemetry";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 import { ensureCameraAccess } from "../lib/mediaDevices";
@@ -31,10 +38,12 @@ export function VoiceSession(props: VoiceSessionProps) {
   const voiceStartedAt = useVoiceStore((state) => state.startedAt);
   const leaveChannel = useVoiceStore((state) => state.leaveChannel);
   const callToken = useDirectCallStore((state) => state.livekitToken);
+  const callId = useDirectCallStore((state) => state.callId);
   const callStatus = useDirectCallStore((state) => state.status);
   const callStartedAt = useDirectCallStore((state) => state.startedAt);
   const callPartner = useDirectCallStore((state) => state.partner);
   const endCall = useDirectCallStore((state) => state.endCall);
+  const socket = useSocketStore((state) => state.socket);
   const outputVolume = useSettingsStore((state) => state.outputVolume);
   const participantVolumes = useSettingsStore((state) => state.participantVolumes);
   const isDeafened = useVoiceStore((state) => state.isDeafened);
@@ -70,6 +79,7 @@ export function VoiceSession(props: VoiceSessionProps) {
       className={visible ? "flex min-h-0 flex-1" : "sr-only"}
     >
       <ParticipantAudioRenderer outputVolume={outputVolume} participantVolumes={participantVolumes} muted={Boolean(!isDirectCall && isDeafened)} />
+      <CallTelemetryReporter socket={socket} callId={isDirectCall ? callId : null} channelId={isDirectCall ? null : connectedChannelId} />
       <VoicePresenceSync channelId={connectedChannelId} />
       <StreamingPresenceSync channelId={connectedChannelId} />
       {visible && (
@@ -84,6 +94,107 @@ export function VoiceSession(props: VoiceSessionProps) {
       )}
     </LiveKitRoom>
   );
+}
+
+const TELEMETRY_INTERVAL_MS = 10_000;
+
+function CallTelemetryReporter(props: {
+  socket: { emit: (event: string, payload: Record<string, unknown>) => void } | null;
+  callId: string | null;
+  channelId: string | null;
+}) {
+  const room = useRoomContext();
+  const { localParticipant } = useLocalParticipant();
+  const remoteParticipants = useRemoteParticipants();
+  const baselinesRef = useRef<StatsBaselineMap>(new Map());
+  const reconnectCountRef = useRef(0);
+  const localParticipantRef = useRef(localParticipant);
+  const remoteParticipantsRef = useRef(remoteParticipants);
+
+  useEffect(() => {
+    localParticipantRef.current = localParticipant;
+  }, [localParticipant]);
+
+  useEffect(() => {
+    remoteParticipantsRef.current = remoteParticipants;
+  }, [remoteParticipants]);
+
+  useEffect(() => {
+    const onReconnected = () => {
+      reconnectCountRef.current += 1;
+    };
+
+    room.on(RoomEvent.Reconnected, onReconnected);
+    return () => {
+      room.off(RoomEvent.Reconnected, onReconnected);
+    };
+  }, [room]);
+
+  useEffect(() => {
+    if (!props.socket || (!props.callId && !props.channelId)) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const sendTelemetry = async () => {
+      if (cancelled || room.state !== ConnectionState.Connected) {
+        return;
+      }
+
+      const currentLocalParticipant = localParticipantRef.current;
+      const currentRemoteParticipants = remoteParticipantsRef.current;
+      const metricReports = [];
+
+      const localReport = await getParticipantAudioReport(currentLocalParticipant);
+      if (localReport) {
+        metricReports.push(collectReportMetrics(localReport, `local:${currentLocalParticipant.identity}`, baselinesRef.current));
+      }
+
+      const remoteReports = await Promise.all(
+        currentRemoteParticipants.map(async (participant) => {
+          const report = await getParticipantAudioReport(participant);
+          if (!report) {
+            return null;
+          }
+
+          return collectReportMetrics(report, `remote:${participant.identity}`, baselinesRef.current);
+        }),
+      );
+
+      metricReports.push(...remoteReports.filter((report): report is NonNullable<typeof report> => Boolean(report)));
+
+      const connectionQuality = getWorstConnectionQuality([
+        currentLocalParticipant.connectionQuality,
+        ...currentRemoteParticipants.map((participant) => participant.connectionQuality),
+      ]);
+
+      const snapshot = buildTelemetrySnapshot({
+        metrics: metricReports,
+        quality: connectionQuality,
+        participantCount: currentRemoteParticipants.length + 1,
+        reconnectCount: reconnectCountRef.current,
+      });
+
+      props.socket?.emit("call_telemetry_update", {
+        callId: props.callId || undefined,
+        channelId: props.channelId || undefined,
+        ...snapshot,
+      });
+    };
+
+    void sendTelemetry();
+    const intervalId = window.setInterval(() => {
+      void sendTelemetry();
+    }, TELEMETRY_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [props.callId, props.channelId, props.socket, room]);
+
+  return null;
 }
 
 function ParticipantAudioRenderer(props: { outputVolume: number; participantVolumes: Record<string, number>; muted: boolean }) {
