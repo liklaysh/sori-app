@@ -1,7 +1,7 @@
 import { AudioTrack, isTrackReference, LiveKitRoom, useLocalParticipant, useRemoteParticipants, useRoomContext, useTracks, VideoTrack } from "@livekit/components-react";
 import type { TrackReferenceOrPlaceholder } from "@livekit/components-react";
-import { ConnectionState, ParticipantEvent, RoomEvent, Track } from "livekit-client";
-import { ChevronDown, Headphones, Mic, MicOff, Monitor, Phone, PhoneOff, ScreenShare, StopCircle, Video, VideoOff, Waves } from "lucide-react";
+import { ConnectionState, ParticipantEvent, RoomEvent, Track, VideoPresets } from "livekit-client";
+import { AlertTriangle, ChevronDown, Headphones, Mic, MicOff, Monitor, Phone, PhoneOff, ScreenShare, StopCircle, Video, VideoOff, Waves, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -51,6 +51,7 @@ export function VoiceSession(props: VoiceSessionProps) {
   const isDirectCall = callStatus === "connected" && Boolean(callToken);
   const presentation = props.presentation || "hidden";
   const visible = presentation !== "hidden";
+  const suppressScreenShareFailureUntilRef = useRef(0);
 
   if (!bootstrap || !token || (!connectedChannelId && !isDirectCall)) {
     return null;
@@ -61,7 +62,7 @@ export function VoiceSession(props: VoiceSessionProps) {
 
   return (
     <LiveKitRoom
-      audio
+      audio={false}
       video={false}
       token={token}
       serverUrl={bootstrap.endpoints.livekit}
@@ -74,10 +75,15 @@ export function VoiceSession(props: VoiceSessionProps) {
         // Keep the SORI voice state alive through transient LiveKit reconnects.
       }}
       onMediaDeviceFailure={(failure) => {
+        if (Date.now() < suppressScreenShareFailureUntilRef.current && isUserCancelledMediaPicker(failure)) {
+          return;
+        }
+
         toast.error(`Media device access failed: ${String(failure)}`);
       }}
       className={visible ? "flex min-h-0 flex-1" : "sr-only"}
     >
+      <LocalMicrophonePublisher />
       <ParticipantAudioRenderer outputVolume={outputVolume} participantVolumes={participantVolumes} muted={Boolean(!isDirectCall && isDeafened)} />
       <CallTelemetryReporter socket={socket} callId={isDirectCall ? callId : null} channelId={isDirectCall ? null : connectedChannelId} />
       <VoicePresenceSync channelId={connectedChannelId} />
@@ -89,6 +95,9 @@ export function VoiceSession(props: VoiceSessionProps) {
           startedAt={startedAt}
           channelId={connectedChannelId}
           onLeave={isDirectCall ? endCall : () => leaveChannel()}
+          onScreenSharePickerAttempt={() => {
+            suppressScreenShareFailureUntilRef.current = Date.now() + 2500;
+          }}
           onMinimize={props.onMinimize}
         />
       )}
@@ -96,7 +105,102 @@ export function VoiceSession(props: VoiceSessionProps) {
   );
 }
 
+function isUserCancelledMediaPicker(failure: unknown) {
+  const message = String(failure).toLowerCase();
+  return message.includes("permission denied")
+    || message.includes("notallowederror")
+    || message.includes("cancel")
+    || message.includes("aborted")
+    || message.includes("dismissed");
+}
+
 const TELEMETRY_INTERVAL_MS = 10_000;
+
+function LocalMicrophonePublisher() {
+  const { localParticipant } = useLocalParticipant();
+  const isMuted = useVoiceStore((state) => state.isMuted);
+  const activeMicId = useSettingsStore((state) => state.activeMicId);
+  const noiseSuppression = useSettingsStore((state) => state.noiseSuppression);
+  const setMediaSettings = useSettingsStore((state) => state.setMediaSettings);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const normalizeInputDevice = async () => {
+      if (!navigator.mediaDevices?.enumerateDevices || activeMicId === "default") {
+        return;
+      }
+
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) {
+          return;
+        }
+
+        const hasStoredDevice = devices.some((device) => device.kind === "audioinput" && device.deviceId === activeMicId);
+        if (!hasStoredDevice) {
+          setMediaSettings({ activeMicId: "default" });
+        }
+      } catch {
+        // Device enumeration can fail before permissions are granted; LiveKit will still try default input.
+      }
+    };
+
+    void normalizeInputDevice();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMicId, setMediaSettings]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncMicrophone = async () => {
+      const audioOptions = {
+        deviceId: activeMicId && activeMicId !== "default" ? activeMicId : undefined,
+        echoCancellation: true,
+        noiseSuppression,
+        autoGainControl: true,
+      };
+
+      try {
+        await localParticipant.setMicrophoneEnabled(!isMuted, audioOptions);
+      } catch (error) {
+        if (cancelled || isMuted) {
+          return;
+        }
+
+        if (activeMicId !== "default") {
+          setMediaSettings({ activeMicId: "default" });
+          try {
+            await localParticipant.setMicrophoneEnabled(true, {
+              echoCancellation: true,
+              noiseSuppression,
+              autoGainControl: true,
+            });
+            return;
+          } catch {
+            // Fall through to the user-visible error below.
+          }
+        }
+
+        const message = error instanceof Error ? error.message : String(error);
+        if (!isUserCancelledMediaPicker(message)) {
+          toast.error(message);
+        }
+      }
+    };
+
+    void syncMicrophone();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMicId, isMuted, localParticipant, noiseSuppression, setMediaSettings]);
+
+  return null;
+}
 
 function CallTelemetryReporter(props: {
   socket: { emit: (event: string, payload: Record<string, unknown>) => void } | null;
@@ -331,6 +435,7 @@ function DesktopVoiceRoom(props: {
   startedAt?: number | null;
   channelId: string | null;
   onLeave: () => void;
+  onScreenSharePickerAttempt: () => void;
   onMinimize?: () => void;
 }) {
   const t = useT();
@@ -420,7 +525,13 @@ function DesktopVoiceRoom(props: {
           )}
         </section>
 
-        <SessionControls mode={props.mode} hideSelfCamera={hideSelfCamera} setHideSelfCamera={setHideSelfCamera} onLeave={props.onLeave} />
+        <SessionControls
+          mode={props.mode}
+          hideSelfCamera={hideSelfCamera}
+          setHideSelfCamera={setHideSelfCamera}
+          onLeave={props.onLeave}
+          onScreenSharePickerAttempt={props.onScreenSharePickerAttempt}
+        />
       </div>
     </div>
   );
@@ -480,7 +591,13 @@ function ParticipantTile(props: { trackRef: TrackReferenceOrPlaceholder; large?:
   );
 }
 
-function SessionControls(props: { mode: VoicePresentation; hideSelfCamera: boolean; setHideSelfCamera: (value: boolean) => void; onLeave: () => void }) {
+function SessionControls(props: {
+  mode: VoicePresentation;
+  hideSelfCamera: boolean;
+  setHideSelfCamera: (value: boolean) => void;
+  onLeave: () => void;
+  onScreenSharePickerAttempt: () => void;
+}) {
   const t = useT();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
   const isMuted = useVoiceStore((state) => state.isMuted);
@@ -501,10 +618,7 @@ function SessionControls(props: { mode: VoicePresentation; hideSelfCamera: boole
   const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
-
-  useEffect(() => {
-    void localParticipant.setMicrophoneEnabled(!isMuted).catch(() => undefined);
-  }, [isMuted, localParticipant]);
+  const [screenSharePickerOpen, setScreenSharePickerOpen] = useState(false);
 
   const toggleMic = () => {
     toggleMute();
@@ -563,6 +677,38 @@ function SessionControls(props: { mode: VoicePresentation; hideSelfCamera: boole
     })();
   };
 
+  const startScreenShare = () => {
+    void (async () => {
+      try {
+        props.onScreenSharePickerAttempt();
+        await localParticipant.setScreenShareEnabled(true, {
+          audio: false,
+          video: true,
+          resolution: VideoPresets.h1080,
+          selfBrowserSurface: "exclude",
+        });
+      } catch (error) {
+        if (!isUserCancelledMediaPicker(error)) {
+          toast.error(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        setScreenSharePickerOpen(false);
+      }
+    })();
+  };
+
+  const toggleScreenShare = () => {
+    if (isScreenShareEnabled) {
+      void localParticipant.setScreenShareEnabled(false).catch(() => undefined);
+      return;
+    }
+
+    setScreenSharePickerOpen(true);
+    setAudioMenuAnchor(null);
+    setCameraMenuAnchor(null);
+    setNoiseMenuAnchor(null);
+  };
+
   return (
     <div className="z-50 flex h-[4.5rem] w-full shrink-0 items-center justify-center gap-2 border-t border-sori-border-subtle bg-sori-surface-base px-6">
       <div className="flex items-center gap-0.5 rounded-xl border border-sori-border-subtle bg-sori-surface-panel p-1">
@@ -603,7 +749,7 @@ function SessionControls(props: { mode: VoicePresentation; hideSelfCamera: boole
         </button>
       </div>
 
-      <button type="button" className={controlButtonClass(isScreenShareEnabled, "secondary")} onClick={() => void localParticipant.setScreenShareEnabled(!isScreenShareEnabled).catch(() => undefined)}>
+      <button type="button" className={controlButtonClass(isScreenShareEnabled, "secondary")} onClick={toggleScreenShare} title={t.presentScreen}>
         {isScreenShareEnabled ? <StopCircle className="h-5 w-5" /> : <ScreenShare className="h-5 w-5" />}
       </button>
 
@@ -663,6 +809,67 @@ function SessionControls(props: { mode: VoicePresentation; hideSelfCamera: boole
           onToggle={(enabled) => setMediaSettings({ noiseSuppression: enabled })}
         />
       )}
+      {screenSharePickerOpen && (
+        <ScreenSharePicker
+          onCancel={() => setScreenSharePickerOpen(false)}
+          onContinue={startScreenShare}
+        />
+      )}
+    </div>
+  );
+}
+
+function ScreenSharePicker(props: { onCancel: () => void; onContinue: () => void }) {
+  const t = useT();
+
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/55 p-6 backdrop-blur-md" onClick={props.onCancel}>
+      <div
+        className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-sori-border-subtle bg-sori-surface-panel shadow-2xl animate-in fade-in-0 zoom-in-95"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-sori-border-subtle bg-sori-surface-main px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary">
+              <ScreenShare className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-black uppercase tracking-widest text-sori-text-strong">{t.screenSharePickerTitle}</h3>
+              <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-sori-text-dim">{t.screenSharePickerSubtitle}</p>
+            </div>
+          </div>
+          <button type="button" className="grid h-9 w-9 place-items-center rounded-xl text-sori-text-muted transition hover:bg-sori-surface-hover hover:text-sori-text-strong" onClick={props.onCancel}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <div className="rounded-2xl border border-sori-border-subtle bg-sori-surface-base p-4">
+            <div className="mb-3 flex items-center gap-3 text-sori-text-strong">
+              <Monitor className="h-5 w-5 text-sori-accent-primary" />
+              <span className="text-xs font-black uppercase tracking-widest">{t.screenShareSystemPicker}</span>
+            </div>
+            <p className="text-xs leading-relaxed text-sori-text-muted">{t.screenShareSystemPickerDescription}</p>
+          </div>
+
+          <div className="flex items-start gap-3 rounded-2xl border border-sori-accent-warning/40 bg-sori-accent-warning/10 p-4">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-sori-accent-warning" />
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-widest text-sori-accent-warning">{t.screenShareQualityTitle}</div>
+              <p className="mt-1 text-xs leading-relaxed text-sori-text-muted">{t.screenShareQualityDescription}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-sori-border-subtle bg-sori-surface-main px-5 py-4">
+          <button type="button" className="rounded-xl border border-sori-border-subtle bg-sori-surface-panel px-4 py-2 text-xs font-black uppercase tracking-widest text-sori-text-muted transition hover:text-sori-text-strong" onClick={props.onCancel}>
+            {t.cancel}
+          </button>
+          <button type="button" className="rounded-xl bg-sori-accent-primary px-4 py-2 text-xs font-black uppercase tracking-widest text-black shadow-lg transition hover:brightness-110" onClick={props.onContinue}>
+            {t.screenShareChooseSource}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

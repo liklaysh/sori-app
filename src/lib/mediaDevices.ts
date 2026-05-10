@@ -1,4 +1,4 @@
-export async function ensureMicrophoneAccess() {
+export async function ensureMicrophoneAccess(deviceId = "default") {
   if (!window.isSecureContext) {
     throw new Error("Microphone access requires a secure app context.");
   }
@@ -7,10 +7,22 @@ export async function ensureMicrophoneAccess() {
     throw new Error("Microphone access is not available in this desktop webview.");
   }
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: true,
-    video: false
-  });
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: deviceId && deviceId !== "default" ? { deviceId: { exact: deviceId } } : true,
+      video: false
+    });
+  } catch (error) {
+    if (!deviceId || deviceId === "default") {
+      throw error;
+    }
+
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false
+    });
+  }
 
   stream.getTracks().forEach((track) => track.stop());
 }

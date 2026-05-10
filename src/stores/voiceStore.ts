@@ -4,6 +4,7 @@ import type { VoiceOccupant } from "../types/sori";
 import { apiRequest } from "../lib/api";
 import { ensureMicrophoneAccess } from "../lib/mediaDevices";
 import { playNotificationSound } from "../lib/notificationSounds";
+import { useSettingsStore } from "./settingsStore";
 import { useSocketStore } from "./socketStore";
 
 type VoiceStatus = "idle" | "connecting" | "connected" | "error";
@@ -38,7 +39,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     const socket = useSocketStore.getState().socket;
     set({ status: "connecting" });
     try {
-      await ensureMicrophoneAccess();
+      await ensureMicrophoneAccess(useSettingsStore.getState().activeMicId);
 
       const tokenData = await apiRequest<{ token: string; startedAt?: number }>("/calls/token", {
         method: "POST",

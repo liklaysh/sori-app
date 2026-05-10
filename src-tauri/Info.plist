@@ -6,5 +6,7 @@
   <string>SORI needs camera access for future video calls and media checks.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>SORI needs microphone access for voice channels and direct calls.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>SORI needs screen recording access when you choose to share your screen.</string>
 </dict>
 </plist>
