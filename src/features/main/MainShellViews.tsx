@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  Music,
   Paperclip,
   Phone,
   PhoneMissed,
@@ -45,6 +46,7 @@ import { apiRequest } from "../../lib/api";
 import { openExternalUrl } from "../../lib/desktopHttp";
 import { uploadAttachment } from "../../lib/upload";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useServerStore } from "../../stores/serverStore";
 import type { Attachment, Channel, ChatItem, DMConversation, LinkMetadata, Member, Message, SoriUser, VoiceOccupant } from "../../types/sori";
 
 const EmojiPicker = lazy(() => import("emoji-picker-react"));
@@ -54,6 +56,7 @@ export type MessageActionMenuState = { message: Message; x: number; y: number } 
 export type VoiceVolumeMenuState = { occupant: VoiceOccupant; x: number; y: number } | null;
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
 const linkPreviewCache = new Map<string, LinkMetadata | null>();
+const hasFileTransfer = (event: DragEvent | React.DragEvent) => Array.from(event.dataTransfer?.types || []).includes("Files");
 
 type MediaMenuState = {
   type: "mic" | "output";
@@ -1307,6 +1310,7 @@ export function MessageRow(props: {
 export function MessageAttachment(props: { attachment: Attachment; onOpen?: () => void }) {
   const isImage = props.attachment.fileType?.startsWith("image/");
   const isVideo = props.attachment.fileType?.startsWith("video/");
+  const isAudio = props.attachment.fileType?.startsWith("audio/");
 
   if (isImage) {
     return (
@@ -1320,6 +1324,33 @@ export function MessageAttachment(props: { attachment: Attachment; onOpen?: () =
     return (
       <div className="max-w-md overflow-hidden rounded-2xl border border-sori-border-subtle bg-sori-surface-elevated shadow-lg">
         <video src={props.attachment.fileUrl} controls className="max-h-80 w-auto" />
+      </div>
+    );
+  }
+
+  if (isAudio) {
+    return (
+      <div className="flex min-w-[280px] max-w-md items-center gap-4 rounded-2xl border border-sori-border-subtle bg-sori-surface-elevated p-4 shadow-lg">
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary">
+          <Music className="h-6 w-6" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="mb-2 truncate text-xs font-bold text-sori-text-strong">{props.attachment.fileName}</p>
+          <audio src={props.attachment.fileUrl} controls preload="metadata" className="h-9 w-full min-w-[220px] max-w-sm accent-sori-accent-primary" />
+          <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-sori-text-muted">{formatFileSize(props.attachment.fileSize)}</p>
+        </div>
+        <a
+          href={props.attachment.fileUrl}
+          download={props.attachment.fileName}
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sori-surface-accent-subtle text-sori-accent-primary transition hover:bg-sori-accent-primary hover:text-black"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void openSafeExternalUrl(props.attachment.fileUrl);
+          }}
+        >
+          <Download className="h-5 w-5" />
+        </a>
       </div>
     );
   }
@@ -1550,6 +1581,9 @@ export function MessageComposer(props: {
   const [uploading, setUploading] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const maxUploadSizeMb = useServerStore((state) => state.bootstrap?.upload.maxUploadSizeMb || 25);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const dragDepthRef = useRef(0);
   const typingStopTimeoutRef = useRef<number | null>(null);
   const lastTypingEmitAtRef = useRef(0);
 
@@ -1569,7 +1603,11 @@ export function MessageComposer(props: {
     props.onTypingChange?.(false);
     const parentId = props.replyTo?.id || null;
     props.onClearReply?.();
-    await props.onSend(value, attachments, parentId);
+    try {
+      await props.onSend(value, attachments, parentId);
+    } finally {
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    }
   };
 
   const handleInputChange = (value: string) => {
@@ -1598,9 +1636,18 @@ export function MessageComposer(props: {
   const handleFiles = async (files: FileList | File[] | null) => {
     const queue = Array.from(files || []).slice(0, 10);
     if (queue.length === 0) return;
+    const maxBytes = maxUploadSizeMb * 1024 * 1024;
+    const uploadable = queue.filter((file) => {
+      if (file.size <= maxBytes) {
+        return true;
+      }
+      toast.error(props.t.fileTooLarge.replace("{size}", String(maxUploadSizeMb)));
+      return false;
+    });
+    if (uploadable.length === 0) return;
     setUploading(true);
     try {
-      const uploaded = await Promise.all(queue.map(uploadAttachment));
+      const uploaded = await Promise.all(uploadable.map(uploadAttachment));
       setAttachments((current) => [...current, ...uploaded].slice(0, 10));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload failed.");
@@ -1609,23 +1656,84 @@ export function MessageComposer(props: {
     }
   };
 
+  useEffect(() => {
+    if (props.disabled) {
+      dragDepthRef.current = 0;
+      setDragActive(false);
+      return;
+    }
+
+    const onDragEnter = (event: DragEvent) => {
+      if (!hasFileTransfer(event)) return;
+      event.preventDefault();
+      dragDepthRef.current += 1;
+      setDragActive(true);
+    };
+
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFileTransfer(event)) return;
+      event.preventDefault();
+      setDragActive(true);
+    };
+
+    const onDragLeave = (event: DragEvent) => {
+      if (!hasFileTransfer(event)) return;
+      event.preventDefault();
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) {
+        setDragActive(false);
+      }
+    };
+
+    const onDrop = (event: DragEvent) => {
+      if (!hasFileTransfer(event)) return;
+      event.preventDefault();
+      dragDepthRef.current = 0;
+      setDragActive(false);
+      void handleFiles(event.dataTransfer?.files || null);
+    };
+
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [props.disabled, maxUploadSizeMb]);
+
   return (
     <footer
       className="relative shrink-0 bg-sori-surface-base px-3 pb-3"
       onDragEnter={(event) => {
+        if (!hasFileTransfer(event)) return;
         event.preventDefault();
+        event.stopPropagation();
+        dragDepthRef.current += 1;
         setDragActive(true);
       }}
       onDragOver={(event) => {
+        if (!hasFileTransfer(event)) return;
         event.preventDefault();
+        event.stopPropagation();
         setDragActive(true);
       }}
       onDragLeave={(event) => {
+        if (!hasFileTransfer(event)) return;
         event.preventDefault();
-        if (event.currentTarget === event.target) setDragActive(false);
+        event.stopPropagation();
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) setDragActive(false);
       }}
       onDrop={(event) => {
+        if (!hasFileTransfer(event)) return;
         event.preventDefault();
+        event.stopPropagation();
+        dragDepthRef.current = 0;
         setDragActive(false);
         void handleFiles(event.dataTransfer.files);
       }}
@@ -1637,12 +1745,17 @@ export function MessageComposer(props: {
       }}
     >
       {dragActive && (
-        <div className="pointer-events-none absolute inset-x-3 bottom-3 z-[90] flex min-h-32 flex-col items-center justify-center rounded-3xl border-2 border-dashed border-sori-border-accent bg-sori-surface-main/95 shadow-2xl">
-          <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary">
-            <UploadCloud className="h-6 w-6" />
+        <div className="pointer-events-none fixed inset-0 z-[90] flex items-center justify-center bg-black/35 backdrop-blur-sm">
+          <div className="mx-8 flex min-h-56 w-[min(38rem,calc(100vw-4rem))] flex-col items-center justify-center rounded-3xl border-2 border-dashed border-sori-border-accent bg-sori-surface-main/95 shadow-2xl">
+            <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary">
+              <UploadCloud className="h-6 w-6" />
+            </div>
+            <div className="text-sm font-black uppercase tracking-widest text-sori-text-strong">{props.t.dropFiles}</div>
+            <div className="mt-1 text-xs font-bold text-sori-text-muted">{props.t.dropFilesDescription}</div>
+            <div className="mt-1 text-[10px] font-black uppercase tracking-widest text-sori-text-dim">
+              {props.t.dropFilesMaxSize.replace("{size}", String(maxUploadSizeMb))}
+            </div>
           </div>
-          <div className="text-sm font-black uppercase tracking-widest text-sori-text-strong">{props.t.dropFiles}</div>
-          <div className="mt-1 text-xs font-bold text-sori-text-muted">{props.t.dropFilesDescription}</div>
         </div>
       )}
       {props.typingUser && (
@@ -1690,6 +1803,7 @@ export function MessageComposer(props: {
           />
         </label>
         <input
+          ref={inputRef}
           className="min-w-0 flex-1 bg-transparent py-2 text-sm font-medium text-sori-text-strong outline-none placeholder:text-sori-text-dim"
           disabled={props.disabled}
           placeholder={props.placeholder}
@@ -1740,7 +1854,8 @@ export function MessageComposer(props: {
 export function AttachmentPreview(props: { attachment: Attachment; onRemove: () => void }) {
   const isImage = props.attachment.fileType?.startsWith("image/");
   const isVideo = props.attachment.fileType?.startsWith("video/");
-  const Icon = isImage ? ImageIcon : isVideo ? Film : FileText;
+  const isAudio = props.attachment.fileType?.startsWith("audio/");
+  const Icon = isImage ? ImageIcon : isVideo ? Film : isAudio ? Music : FileText;
 
   return (
     <div className="group relative flex max-w-72 items-center gap-3 rounded-xl border border-sori-border-subtle bg-sori-surface-panel p-2 pr-9">
