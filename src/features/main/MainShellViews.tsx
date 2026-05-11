@@ -54,6 +54,7 @@ const EmojiPicker = lazy(() => import("emoji-picker-react"));
 export type MemberMenuState = { member: Member; x: number; y: number } | null;
 export type MessageActionMenuState = { message: Message; x: number; y: number } | null;
 export type VoiceVolumeMenuState = { occupant: VoiceOccupant; x: number; y: number } | null;
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 const URL_REGEX = /(https?:\/\/[^\s]+)/g;
 const linkPreviewCache = new Map<string, LinkMetadata | null>();
 const hasFileTransfer = (event: DragEvent | React.DragEvent) => Array.from(event.dataTransfer?.types || []).includes("Files");
@@ -732,6 +733,7 @@ export function MessageActionMenu(props: {
       className="fixed z-[80] min-w-[220px] animate-in zoom-in-95 rounded-2xl border border-sori-border-subtle bg-sori-surface-panel py-2 shadow-2xl shadow-black ring-1 ring-sori-border-subtle"
       style={floatingMenuPosition(props.menu.x, props.menu.y, 260, canReact ? 220 : 120)}
       onClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
     >
       <MenuAction icon={<Reply className="h-4 w-4" />} label={props.t.reply} onClick={props.onReply} />
       <MenuAction icon={<Copy className="h-4 w-4" />} label={props.t.copyMessage} onClick={props.onCopy} />
@@ -742,7 +744,7 @@ export function MessageActionMenu(props: {
             {props.t.reactions}
           </div>
           <div className="flex justify-between gap-1 px-4 py-1.5">
-            {["👍", "❤️", "😂", "😮", "😢", "🔥"].map((emoji) => (
+            {QUICK_REACTIONS.map((emoji) => (
               <button
                 type="button"
                 key={emoji}
@@ -874,9 +876,9 @@ export function UserControlBlock(props: {
 
   return (
     <div className="mt-auto border-t border-sori-border-subtle bg-sori-surface-panel p-2">
-      <div className="relative rounded-2xl border border-sori-border-subtle bg-sori-surface-elevated shadow-2xl">
+      <div className="relative overflow-hidden rounded-2xl border border-sori-border-subtle bg-sori-surface-elevated shadow-2xl">
         {isVoiceConnected && (
-          <div className="border-b border-sori-border-subtle bg-sori-surface-main px-3 py-2 animate-in slide-in-from-bottom-1">
+          <div className="rounded-t-2xl border-b border-sori-border-subtle bg-sori-surface-main px-3 py-2 animate-in slide-in-from-bottom-1">
             <div className="flex items-center gap-3">
               <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-sori-surface-success-subtle text-sori-accent-secondary">
                 <Volume2 className="h-4 w-4 animate-pulse" />

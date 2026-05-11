@@ -1,6 +1,6 @@
 [package]
 name = "sori-app"
-version = "0.1.1"
+version = "0.1.2"
 description = "SORI desktop client"
 authors = ["SORI"]
 edition = "2021"
