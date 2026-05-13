@@ -1,7 +1,7 @@
 import { AudioTrack, isTrackReference, LiveKitRoom, useLocalParticipant, useRemoteParticipants, useRoomContext, useTracks, VideoTrack } from "@livekit/components-react";
 import type { TrackReferenceOrPlaceholder } from "@livekit/components-react";
 import { ConnectionState, ParticipantEvent, RoomEvent, Track, VideoPresets } from "livekit-client";
-import { AlertTriangle, ChevronDown, Headphones, Mic, MicOff, Monitor, Phone, PhoneOff, ScreenShare, StopCircle, Video, VideoOff, Waves, X } from "lucide-react";
+import { ChevronDown, Headphones, Mic, MicOff, Monitor, Phone, PhoneOff, ScreenShare, StopCircle, Video, VideoOff, Waves } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -12,6 +12,7 @@ import {
   type StatsBaselineMap,
 } from "../lib/callTelemetry";
 import { cn } from "../lib/cn";
+import { formatCallDuration } from "../lib/duration";
 import { useT } from "../lib/i18n";
 import { ensureCameraAccess } from "../lib/mediaDevices";
 import { useAuthStore } from "../stores/authStore";
@@ -51,7 +52,7 @@ export function VoiceSession(props: VoiceSessionProps) {
   const isDirectCall = callStatus === "connected" && Boolean(callToken);
   const presentation = props.presentation || "hidden";
   const visible = presentation !== "hidden";
-  const suppressScreenShareFailureUntilRef = useRef(0);
+  const screenSharePickerRef = useRef({ active: false, suppressUntil: 0 });
 
   if (!bootstrap || !token || (!connectedChannelId && !isDirectCall)) {
     return null;
@@ -75,7 +76,8 @@ export function VoiceSession(props: VoiceSessionProps) {
         // Keep the SORI voice state alive through transient LiveKit reconnects.
       }}
       onMediaDeviceFailure={(failure) => {
-        if (Date.now() < suppressScreenShareFailureUntilRef.current && isUserCancelledMediaPicker(failure)) {
+        const suppressScreenShareCancel = screenSharePickerRef.current.active || Date.now() < screenSharePickerRef.current.suppressUntil;
+        if (suppressScreenShareCancel && isUserCancelledMediaPicker(failure)) {
           return;
         }
 
@@ -96,7 +98,16 @@ export function VoiceSession(props: VoiceSessionProps) {
           channelId={connectedChannelId}
           onLeave={isDirectCall ? endCall : () => leaveChannel()}
           onScreenSharePickerAttempt={() => {
-            suppressScreenShareFailureUntilRef.current = Date.now() + 2500;
+            screenSharePickerRef.current = {
+              active: true,
+              suppressUntil: Date.now() + 5 * 60_000,
+            };
+          }}
+          onScreenSharePickerSettled={() => {
+            screenSharePickerRef.current = {
+              active: false,
+              suppressUntil: Date.now() + 30_000,
+            };
           }}
           onMinimize={props.onMinimize}
         />
@@ -106,12 +117,21 @@ export function VoiceSession(props: VoiceSessionProps) {
 }
 
 function isUserCancelledMediaPicker(failure: unknown) {
-  const message = String(failure).toLowerCase();
+  const error = failure as { name?: string; message?: string; error?: { name?: string; message?: string } };
+  const message = [
+    error?.name,
+    error?.message,
+    error?.error?.name,
+    error?.error?.message,
+    String(failure),
+  ].join(" ").toLowerCase();
   return message.includes("permission denied")
     || message.includes("notallowederror")
+    || message.includes("aborterror")
     || message.includes("cancel")
     || message.includes("aborted")
-    || message.includes("dismissed");
+    || message.includes("dismissed")
+    || message.includes("user denied");
 }
 
 const TELEMETRY_INTERVAL_MS = 10_000;
@@ -436,6 +456,7 @@ function DesktopVoiceRoom(props: {
   channelId: string | null;
   onLeave: () => void;
   onScreenSharePickerAttempt: () => void;
+  onScreenSharePickerSettled: () => void;
   onMinimize?: () => void;
 }) {
   const t = useT();
@@ -531,6 +552,7 @@ function DesktopVoiceRoom(props: {
           setHideSelfCamera={setHideSelfCamera}
           onLeave={props.onLeave}
           onScreenSharePickerAttempt={props.onScreenSharePickerAttempt}
+          onScreenSharePickerSettled={props.onScreenSharePickerSettled}
         />
       </div>
     </div>
@@ -597,6 +619,7 @@ function SessionControls(props: {
   setHideSelfCamera: (value: boolean) => void;
   onLeave: () => void;
   onScreenSharePickerAttempt: () => void;
+  onScreenSharePickerSettled: () => void;
 }) {
   const t = useT();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
@@ -618,7 +641,6 @@ function SessionControls(props: {
   const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
-  const [screenSharePickerOpen, setScreenSharePickerOpen] = useState(false);
 
   const toggleMic = () => {
     toggleMute();
@@ -692,7 +714,7 @@ function SessionControls(props: {
           toast.error(error instanceof Error ? error.message : String(error));
         }
       } finally {
-        setScreenSharePickerOpen(false);
+        props.onScreenSharePickerSettled();
       }
     })();
   };
@@ -703,10 +725,10 @@ function SessionControls(props: {
       return;
     }
 
-    setScreenSharePickerOpen(true);
     setAudioMenuAnchor(null);
     setCameraMenuAnchor(null);
     setNoiseMenuAnchor(null);
+    startScreenShare();
   };
 
   return (
@@ -809,67 +831,6 @@ function SessionControls(props: {
           onToggle={(enabled) => setMediaSettings({ noiseSuppression: enabled })}
         />
       )}
-      {screenSharePickerOpen && (
-        <ScreenSharePicker
-          onCancel={() => setScreenSharePickerOpen(false)}
-          onContinue={startScreenShare}
-        />
-      )}
-    </div>
-  );
-}
-
-function ScreenSharePicker(props: { onCancel: () => void; onContinue: () => void }) {
-  const t = useT();
-
-  return (
-    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/55 p-6 backdrop-blur-md" onClick={props.onCancel}>
-      <div
-        className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-sori-border-subtle bg-sori-surface-panel shadow-2xl animate-in fade-in-0 zoom-in-95"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-sori-border-subtle bg-sori-surface-main px-5 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary">
-              <ScreenShare className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-black uppercase tracking-widest text-sori-text-strong">{t.screenSharePickerTitle}</h3>
-              <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-sori-text-dim">{t.screenSharePickerSubtitle}</p>
-            </div>
-          </div>
-          <button type="button" className="grid h-9 w-9 place-items-center rounded-xl text-sori-text-muted transition hover:bg-sori-surface-hover hover:text-sori-text-strong" onClick={props.onCancel}>
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="space-y-4 p-5">
-          <div className="rounded-2xl border border-sori-border-subtle bg-sori-surface-base p-4">
-            <div className="mb-3 flex items-center gap-3 text-sori-text-strong">
-              <Monitor className="h-5 w-5 text-sori-accent-primary" />
-              <span className="text-xs font-black uppercase tracking-widest">{t.screenShareSystemPicker}</span>
-            </div>
-            <p className="text-xs leading-relaxed text-sori-text-muted">{t.screenShareSystemPickerDescription}</p>
-          </div>
-
-          <div className="flex items-start gap-3 rounded-2xl border border-sori-accent-warning/40 bg-sori-accent-warning/10 p-4">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-sori-accent-warning" />
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-widest text-sori-accent-warning">{t.screenShareQualityTitle}</div>
-              <p className="mt-1 text-xs leading-relaxed text-sori-text-muted">{t.screenShareQualityDescription}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 border-t border-sori-border-subtle bg-sori-surface-main px-5 py-4">
-          <button type="button" className="rounded-xl border border-sori-border-subtle bg-sori-surface-panel px-4 py-2 text-xs font-black uppercase tracking-widest text-sori-text-muted transition hover:text-sori-text-strong" onClick={props.onCancel}>
-            {t.cancel}
-          </button>
-          <button type="button" className="rounded-xl bg-sori-accent-primary px-4 py-2 text-xs font-black uppercase tracking-widest text-black shadow-lg transition hover:brightness-110" onClick={props.onContinue}>
-            {t.screenShareChooseSource}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1138,9 +1099,7 @@ function useDurationLabel(startedAt: number | null | undefined) {
     return () => window.clearInterval(interval);
   }, [startedAt]);
 
-  if (!startedAt) return "00:00";
+  if (!startedAt) return "00:00:00";
   const total = Math.max(0, Math.floor((now - startedAt) / 1000));
-  const mins = Math.floor(total / 60).toString().padStart(2, "0");
-  const secs = (total % 60).toString().padStart(2, "0");
-  return `${mins}:${secs}`;
+  return formatCallDuration(total);
 }

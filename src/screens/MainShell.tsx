@@ -186,6 +186,7 @@ export function MainShell() {
               />
             ) : (
               <MessageList
+                contextKey={`${state.showCommunity ? "channel" : "dm"}:${state.showCommunity ? state.activeChannelId || "none" : state.activeConversationId || "none"}`}
                 items={state.filteredMessages}
                 currentUser={state.user}
                 emptyText={state.messageSearchQuery.trim() ? state.t.noSearchResults : state.t.noMessages}
@@ -286,10 +287,10 @@ export function MainShell() {
 
 function ChatLoadingSkeleton(props: { label: string }) {
   return (
-    <div className="flex flex-1 flex-col gap-6 overflow-hidden bg-sori-surface-base px-8 py-8">
+    <div className="flex flex-1 flex-col gap-6 overflow-hidden bg-sori-surface-base px-8 py-8" role="status" aria-label={props.label}>
       <div className="text-[10px] font-black uppercase tracking-[0.2em] text-sori-text-dim">{props.label}</div>
       {[0, 1, 2, 3, 4, 5].map((item) => (
-        <div key={item} className="flex max-w-3xl gap-4">
+        <div key={item} className="flex max-w-3xl gap-4" aria-hidden="true">
           <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-sori-surface-elevated" />
           <div className="min-w-0 flex-1 space-y-3">
             <div className="flex items-center gap-2">

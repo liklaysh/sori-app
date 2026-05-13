@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useDirectCallStore } from "../stores/directCallStore";
 import { useT } from "../lib/i18n";
 import { cn } from "../lib/cn";
+import { formatCallDuration } from "../lib/duration";
 
 export function DirectCallOverlay(props: { isMaximized?: boolean; onToggleMaximize?: () => void }) {
   const t = useT();
@@ -107,9 +108,7 @@ function useDurationLabel(startedAt: number | null | undefined) {
     return () => window.clearInterval(interval);
   }, [startedAt]);
 
-  if (!startedAt) return "00:00";
+  if (!startedAt) return "00:00:00";
   const total = Math.max(0, Math.floor((now - startedAt) / 1000));
-  const mins = Math.floor(total / 60).toString().padStart(2, "0");
-  const secs = (total % 60).toString().padStart(2, "0");
-  return `${mins}:${secs}`;
+  return formatCallDuration(total);
 }

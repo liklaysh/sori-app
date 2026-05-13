@@ -4,10 +4,36 @@ import type { VoiceOccupant } from "../types/sori";
 import { apiRequest } from "../lib/api";
 import { ensureMicrophoneAccess } from "../lib/mediaDevices";
 import { playNotificationSound } from "../lib/notificationSounds";
+import { useAuthStore } from "./authStore";
 import { useSettingsStore } from "./settingsStore";
 import { useSocketStore } from "./socketStore";
 
 type VoiceStatus = "idle" | "connecting" | "connected" | "error";
+
+function patchOccupant(
+  occupantsByChannel: Record<string, VoiceOccupant[]>,
+  channelId: string,
+  userId: string,
+  data: Partial<VoiceOccupant>,
+) {
+  return {
+    ...occupantsByChannel,
+    [channelId]: (occupantsByChannel[channelId] || []).map((occupant) => (
+      occupant.userId === userId ? { ...occupant, ...data } : occupant
+    )),
+  };
+}
+
+function removeOccupant(
+  occupantsByChannel: Record<string, VoiceOccupant[]>,
+  channelId: string,
+  userId: string,
+) {
+  return {
+    ...occupantsByChannel,
+    [channelId]: (occupantsByChannel[channelId] || []).filter((occupant) => occupant.userId !== userId),
+  };
+}
 
 interface VoiceState {
   status: VoiceStatus;
@@ -63,21 +89,28 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
   leaveChannel: (options) => {
     const { connectedChannelId } = get();
+    const socket = useSocketStore.getState().socket;
+    const userId = useAuthStore.getState().user?.id;
     if (connectedChannelId) {
-      useSocketStore.getState().socket?.emit("leave_voice_channel", connectedChannelId);
+      socket?.emit("user_speaking_update", { channelId: connectedChannelId, isSpeaking: false });
+      socket?.emit("user_streaming_update", { channelId: connectedChannelId, isStreaming: false });
+      socket?.emit("leave_voice_channel", connectedChannelId);
       if (!options?.silent) {
         playNotificationSound("voiceLeave");
       }
     }
 
-    set({
+    set((state) => ({
       status: "idle",
       connectedChannelId: null,
       livekitToken: null,
       startedAt: null,
       isMuted: false,
-      isDeafened: false
-    });
+      isDeafened: false,
+      occupantsByChannel: connectedChannelId && userId
+        ? removeOccupant(state.occupantsByChannel, connectedChannelId, userId)
+        : state.occupantsByChannel
+    }));
   },
 
   setOccupants: (channelId, occupants) => set((state) => ({
@@ -112,7 +145,13 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   toggleMute: () => {
     const nextMuted = !get().isMuted;
     const channelId = get().connectedChannelId;
-    set({ isMuted: nextMuted });
+    const userId = useAuthStore.getState().user?.id;
+    set((state) => ({
+      isMuted: nextMuted,
+      occupantsByChannel: channelId && userId
+        ? patchOccupant(state.occupantsByChannel, channelId, userId, { isMuted: nextMuted })
+        : state.occupantsByChannel
+    }));
     if (channelId) {
       useSocketStore.getState().socket?.emit("user_audio_status_update", {
         channelId,
@@ -125,7 +164,13 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   toggleDeafen: () => {
     const nextDeafened = !get().isDeafened;
     const channelId = get().connectedChannelId;
-    set({ isDeafened: nextDeafened });
+    const userId = useAuthStore.getState().user?.id;
+    set((state) => ({
+      isDeafened: nextDeafened,
+      occupantsByChannel: channelId && userId
+        ? patchOccupant(state.occupantsByChannel, channelId, userId, { isDeafened: nextDeafened })
+        : state.occupantsByChannel
+    }));
     if (channelId) {
       useSocketStore.getState().socket?.emit("user_audio_status_update", {
         channelId,

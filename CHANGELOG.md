@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+- Improved voice channel leave and mute/deafen UI synchronization in the desktop client.
+- Added the chat "scroll to latest message" control to match the web client behavior.
+- Rebuilt the production app icon set from the final 1024px source icon for Windows, macOS, and Tauri.
+- Refined desktop chat behavior, including initial scroll position, screen share cancellation handling, drag-and-drop support, and call timer formatting.
+
 ## 0.1.2
 
 - Improved desktop voice reliability, media device publishing, and reconnect behavior.

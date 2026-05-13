@@ -1,6 +1,7 @@
 import { FormEvent, Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import {
+  ArrowDown,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -44,6 +45,7 @@ import { useT } from "../../lib/i18n";
 import { cn } from "../../lib/cn";
 import { apiRequest } from "../../lib/api";
 import { openExternalUrl } from "../../lib/desktopHttp";
+import { formatCallDuration } from "../../lib/duration";
 import { uploadAttachment } from "../../lib/upload";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useServerStore } from "../../stores/serverStore";
@@ -439,11 +441,8 @@ export function DMSidebar(props: {
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sori-border-subtle bg-sori-surface-panel">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-sori-border-subtle px-4">
+      <header className="flex h-14 shrink-0 items-center border-b border-sori-border-subtle px-4">
         <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-sori-text-muted">{props.t.directMessages}</h2>
-        <span className="rounded-full bg-sori-surface-elevated px-2 py-1 text-[9px] font-black text-sori-text-dim">
-          {props.conversations.length}
-        </span>
       </header>
       <div className="border-b border-sori-border-subtle p-3">
         <div className="flex items-center gap-2 rounded-xl border border-sori-border-subtle bg-sori-surface-base px-3 py-2 text-sori-text-muted focus-within:border-sori-border-accent">
@@ -1127,6 +1126,7 @@ function DeafenIcon(props: { active: boolean; className?: string }) {
 }
 
 export function MessageList(props: {
+  contextKey: string;
   items: ChatItem[];
   currentUser: SoriUser | null;
   emptyText: string;
@@ -1135,18 +1135,60 @@ export function MessageList(props: {
   onReaction?: (message: Message, emoji: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const currentContextKeyRef = useRef<string | null>(null);
+  const didInitialScrollRef = useRef(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    const node = scrollRef.current;
+    if (!node) return;
+
+    node.scrollTo({ top: node.scrollHeight, behavior });
+    setShowScrollButton(false);
+  };
+
+  const handleScroll = () => {
+    const node = scrollRef.current;
+    if (!node) {
+      setShowScrollButton(false);
+      return;
+    }
+
+    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+    setShowScrollButton(distanceFromBottom > 240);
+  };
 
   useEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
+
+    if (currentContextKeyRef.current !== props.contextKey) {
+      currentContextKeyRef.current = props.contextKey;
+      didInitialScrollRef.current = false;
+      setShowScrollButton(false);
+    }
+
+    if (!didInitialScrollRef.current) {
+      if (props.items.length === 0) {
+        return;
+      }
+      didInitialScrollRef.current = true;
+      window.requestAnimationFrame(() => {
+        node.scrollTo({ top: node.scrollHeight, behavior: "auto" });
+        setShowScrollButton(false);
+      });
+      return;
+    }
+
     const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
     if (distanceFromBottom < 240) {
       node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+      setShowScrollButton(false);
     }
-  }, [props.items.length]);
+  }, [props.contextKey, props.items.length]);
 
   return (
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-6 no-scrollbar">
+    <div ref={scrollRef} onScroll={handleScroll} className="relative min-h-0 flex-1 overflow-y-auto px-6 py-6 no-scrollbar">
       {props.items.length === 0 ? (
         <div className="grid h-full place-items-center">
           <div className="text-center">
@@ -1184,6 +1226,19 @@ export function MessageList(props: {
               </div>
             );
           })}
+        </div>
+      )}
+      {showScrollButton && (
+        <div className="sticky bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none">
+          <button
+            type="button"
+            onClick={() => scrollToBottom("smooth")}
+            aria-label={props.t.scrollToLatest}
+            title={props.t.scrollToLatest}
+            className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-sori-border-accent bg-sori-surface-main text-sori-accent-primary shadow-2xl transition-all animate-in slide-in-from-bottom-4 hover:scale-110 active:scale-95"
+          >
+            <ArrowDown className="h-5 w-5" />
+          </button>
         </div>
       )}
     </div>
@@ -2073,10 +2128,7 @@ function callLabel(status: string | undefined, t: ReturnType<typeof useT>) {
 }
 
 function formatDuration(seconds: number) {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
-  const mins = Math.floor(safeSeconds / 60).toString().padStart(2, "0");
-  const secs = (safeSeconds % 60).toString().padStart(2, "0");
-  return `${mins}:${secs}`;
+  return formatCallDuration(seconds);
 }
 
 function getConversationPeer(conversation: DMConversation | null, user: SoriUser | null) {
@@ -2142,7 +2194,7 @@ function useDurationLabel(startedAt: number | null | undefined) {
   }, [startedAt]);
 
   if (!startedAt) {
-    return "00:00";
+    return "00:00:00";
   }
 
   return formatDuration(Math.floor((now - startedAt) / 1000));
