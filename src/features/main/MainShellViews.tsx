@@ -47,7 +47,7 @@ import { apiRequest } from "../../lib/api";
 import { openExternalUrl } from "../../lib/desktopHttp";
 import { formatCallDuration } from "../../lib/duration";
 import { uploadAttachment } from "../../lib/upload";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { NoiseSuppressionMode, useSettingsStore } from "../../stores/settingsStore";
 import { useServerStore } from "../../stores/serverStore";
 import type { Attachment, Channel, ChatItem, DMConversation, LinkMetadata, Member, Message, SoriUser, VoiceOccupant } from "../../types/sori";
 
@@ -62,7 +62,7 @@ const linkPreviewCache = new Map<string, LinkMetadata | null>();
 const hasFileTransfer = (event: DragEvent | React.DragEvent) => Array.from(event.dataTransfer?.types || []).includes("Files");
 
 type MediaMenuState = {
-  type: "mic" | "output";
+  type: "mic" | "output" | "noise";
   left: number;
   right: number;
   top: number;
@@ -840,7 +840,7 @@ export function UserControlBlock(props: {
   const activeOutputId = useSettingsStore((state) => state.activeOutputId);
   const micGain = useSettingsStore((state) => state.micGain);
   const outputVolume = useSettingsStore((state) => state.outputVolume);
-  const noiseSuppression = useSettingsStore((state) => state.noiseSuppression);
+  const noiseSuppressionMode = useSettingsStore((state) => state.noiseSuppressionMode);
   const setMediaSettings = useSettingsStore((state) => state.setMediaSettings);
   const [openMediaMenu, setOpenMediaMenu] = useState<MediaMenuState>(null);
   const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([]);
@@ -889,12 +889,30 @@ export function UserControlBlock(props: {
               <div className="flex shrink-0 items-center gap-1">
                 <button
                   type="button"
-                  className={userControlVoiceIconClass(noiseSuppression, "accent")}
-                  onClick={() => setMediaSettings({ noiseSuppression: !noiseSuppression })}
+                  className={userControlVoiceIconClass(noiseSuppressionMode !== "webrtc_basic", "accent")}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpenMediaMenu(openMediaMenu?.type === "noise" ? null : mediaMenuAnchor("noise", event.currentTarget));
+                  }}
                   title={props.t.noiseSuppression}
                 >
                   <Waves className="h-4 w-4" />
                 </button>
+                {openMediaMenu?.type === "noise" && (
+                  <NoiseSuppressionMenu
+                    anchor={openMediaMenu}
+                    value={noiseSuppressionMode}
+                    onChange={(mode) => {
+                      setMediaSettings({
+                        noiseSuppressionMode: mode,
+                        ...(mode === "experimental_ai" ? {} : { webNoiseSuppressionFallbackMode: mode })
+                      });
+                      toast.success(props.t.noiseSuppressionChanged);
+                      setOpenMediaMenu(null);
+                    }}
+                    t={props.t}
+                  />
+                )}
                 <button type="button" className={userControlVoiceIconClass(true, "danger")} onClick={props.onLeaveVoice} title={props.t.leaveVoice}>
                   <PhoneOff className="h-4 w-4" />
                 </button>
@@ -1103,7 +1121,47 @@ function MediaDeviceMenu(props: {
   );
 }
 
-function mediaMenuAnchor(type: "mic" | "output", node: HTMLElement): Exclude<MediaMenuState, null> {
+function NoiseSuppressionMenu(props: {
+  anchor: Exclude<MediaMenuState, null>;
+  value: NoiseSuppressionMode;
+  onChange: (mode: NoiseSuppressionMode) => void;
+  t: ReturnType<typeof useT>;
+}) {
+  const modes: NoiseSuppressionMode[] = ["webrtc_basic", "rnnoise", "experimental_ai"];
+
+  return (
+    <div
+      className="fixed z-[120] w-72 rounded-2xl border border-sori-border-subtle bg-sori-surface-panel p-4 shadow-2xl animate-in fade-in-0 zoom-in-95"
+      style={{ left: Math.max(12, props.anchor.right - 288), bottom: Math.max(12, window.innerHeight - props.anchor.top + 10) }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="mb-3 text-[11px] font-black uppercase tracking-widest text-sori-text-strong">{props.t.noiseSuppression}</div>
+      <div className="space-y-2">
+        {modes.map((mode) => {
+          const active = props.value === mode;
+          return (
+            <button
+              key={mode}
+              type="button"
+              className={cn(
+                "w-full rounded-xl border px-3 py-2.5 text-left transition",
+                active
+                  ? "border-sori-border-accent bg-sori-surface-accent-subtle text-sori-text-strong"
+                  : "border-sori-border-subtle bg-sori-surface-elevated text-sori-text-muted hover:border-sori-border-medium hover:text-sori-text-strong"
+              )}
+              onClick={() => props.onChange(mode)}
+            >
+              <div className="text-[11px] font-black uppercase tracking-wide">{props.t.noiseModeLabels[mode]}</div>
+              <p className="mt-1 text-[10px] font-medium leading-snug text-sori-text-muted">{props.t.noiseModeDescriptions[mode]}</p>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function mediaMenuAnchor(type: "mic" | "output" | "noise", node: HTMLElement): Exclude<MediaMenuState, null> {
   const rect = node.getBoundingClientRect();
   return {
     type,

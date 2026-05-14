@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { useAuthStore } from "../stores/authStore";
 import { useServerStore } from "../stores/serverStore";
 import { useSocketStore } from "../stores/socketStore";
-import { useSettingsStore, type AppLanguage, type NotificationSettingKey } from "../stores/settingsStore";
+import { useSettingsStore, type AppLanguage, type NoiseSuppressionMode, type NotificationSettingKey } from "../stores/settingsStore";
+import { isNoiseSuppressionMode, isWebNoiseSuppressionMode } from "../lib/noiseSuppression";
 import { apiRequest } from "../lib/api";
 import { checkForAppUpdate } from "../lib/appUpdater";
 import { cn } from "../lib/cn";
@@ -331,10 +332,9 @@ function IdentityField(props: { icon: "shield" | "mail"; label: string; value: s
 
 function EquipmentTab(props: { user: SoriUser }) {
   const t = useT();
-  const setUser = useAuthStore((state) => state.setUser);
   const micGain = useSettingsStore((state) => state.micGain);
   const outputVolume = useSettingsStore((state) => state.outputVolume);
-  const noiseSuppression = useSettingsStore((state) => state.noiseSuppression);
+  const noiseSuppressionMode = useSettingsStore((state) => state.noiseSuppressionMode);
   const activeMicId = useSettingsStore((state) => state.activeMicId);
   const activeOutputId = useSettingsStore((state) => state.activeOutputId);
   const setMediaSettings = useSettingsStore((state) => state.setMediaSettings);
@@ -346,10 +346,22 @@ function EquipmentTab(props: { user: SoriUser }) {
   const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
+    const nextNoiseMode = isNoiseSuppressionMode(props.user.noiseSuppressionMode)
+      ? props.user.noiseSuppressionMode
+      : props.user.noiseSuppression
+        ? "rnnoise"
+        : "webrtc_basic";
+    const nextWebFallback = isWebNoiseSuppressionMode(props.user.webNoiseSuppressionFallbackMode)
+      ? props.user.webNoiseSuppressionFallbackMode
+      : props.user.noiseSuppression
+        ? "rnnoise"
+        : null;
+
     setMediaSettings({
       micGain: props.user.micGain ?? micGain,
       outputVolume: props.user.outputVolume ?? outputVolume,
-      noiseSuppression: !!props.user.noiseSuppression
+      noiseSuppressionMode: nextNoiseMode,
+      webNoiseSuppressionFallbackMode: nextWebFallback
     });
   }, [props.user.id]);
 
@@ -359,22 +371,6 @@ function EquipmentTab(props: { user: SoriUser }) {
       setOutputDevices(devices.filter((device) => device.kind === "audiooutput"));
     }).catch(() => undefined);
   }, []);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        const updated = await apiRequest<SoriUser>("/users/me", {
-          method: "PATCH",
-          body: JSON.stringify({ micGain, outputVolume, noiseSuppression })
-        });
-        setUser(updated);
-      } catch {
-        toast.error(t.mediaSyncFailed);
-      }
-    }, 1200);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [micGain, noiseSuppression, outputVolume, setUser, t.mediaSyncFailed]);
 
   useEffect(() => () => stopHardwareTest(streamRef, setTesting), []);
 
@@ -409,17 +405,26 @@ function EquipmentTab(props: { user: SoriUser }) {
         <SliderCard label={t.outputVolume} value={outputVolume} max={200} onChange={(value) => setMediaSettings({ outputVolume: value })} />
       </div>
 
-      <section className="flex items-center justify-between gap-5 rounded-[2rem] border border-sori-border-subtle bg-sori-surface-main p-6">
+      <section className="space-y-4 rounded-[2rem] border border-sori-border-subtle bg-sori-surface-main p-6">
         <div className="flex items-center gap-4">
-          <div className={cn("grid h-12 w-12 place-items-center rounded-2xl border border-sori-border-subtle", noiseSuppression ? "bg-sori-surface-accent-subtle text-sori-accent-secondary" : "bg-sori-surface-panel text-sori-text-muted")}>
+          <div className="grid h-12 w-12 place-items-center rounded-2xl border border-sori-border-subtle bg-sori-surface-accent-subtle text-sori-accent-secondary">
             <Waves className="h-6 w-6" />
           </div>
           <div>
             <h3 className="text-base font-black text-sori-text-strong">{t.noiseSuppression}</h3>
-            <p className="mt-1 text-xs text-sori-text-muted">{t.noiseSuppressionDescription}</p>
+            <p className="mt-1 text-xs text-sori-text-muted">{t.noiseSuppressionHint}</p>
           </div>
         </div>
-        <Switch checked={noiseSuppression} onChange={(checked) => setMediaSettings({ noiseSuppression: checked })} label={t.noiseSuppression} />
+        <NoiseSuppressionModeList
+          value={noiseSuppressionMode}
+          onChange={(mode) => {
+            setMediaSettings({
+              noiseSuppressionMode: mode,
+              ...(mode === "experimental_ai" ? {} : { webNoiseSuppressionFallbackMode: mode })
+            });
+            toast.success(t.noiseSuppressionChanged);
+          }}
+        />
       </section>
 
       <section className="rounded-[2rem] border border-sori-border-subtle bg-sori-surface-main p-6">
@@ -503,6 +508,38 @@ function SliderCard(props: { label: string; value: number; max: number; onChange
         onChange={(event) => props.onChange(Number(event.target.value))}
       />
     </section>
+  );
+}
+
+function NoiseSuppressionModeList(props: {
+  value: NoiseSuppressionMode;
+  onChange: (mode: NoiseSuppressionMode) => void;
+}) {
+  const t = useT();
+  const modes: NoiseSuppressionMode[] = ["webrtc_basic", "rnnoise", "experimental_ai"];
+
+  return (
+    <div className="grid gap-2">
+      {modes.map((mode) => {
+        const active = props.value === mode;
+        return (
+          <button
+            key={mode}
+            type="button"
+            className={cn(
+              "rounded-xl border px-3 py-3 text-left transition",
+              active
+                ? "border-sori-border-accent bg-sori-surface-accent-subtle text-sori-text-strong"
+                : "border-sori-border-subtle bg-sori-surface-elevated text-sori-text-muted hover:border-sori-border-medium hover:text-sori-text-strong"
+            )}
+            onClick={() => props.onChange(mode)}
+          >
+            <div className="text-[11px] font-black uppercase tracking-wide">{t.noiseModeLabels[mode]}</div>
+            <p className="mt-1 text-[10px] font-medium leading-snug text-sori-text-muted">{t.noiseModeDescriptions[mode]}</p>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

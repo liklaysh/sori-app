@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export type AppLanguage = "en" | "ru";
+export type NoiseSuppressionMode = "webrtc_basic" | "rnnoise" | "experimental_ai";
+export type WebNoiseSuppressionMode = "webrtc_basic" | "rnnoise";
 
 function detectLanguage(): AppLanguage {
   const language = navigator.language.toLowerCase();
@@ -12,7 +14,8 @@ interface SettingsState {
   language: AppLanguage;
   micGain: number;
   outputVolume: number;
-  noiseSuppression: boolean;
+  noiseSuppressionMode: NoiseSuppressionMode;
+  webNoiseSuppressionFallbackMode: WebNoiseSuppressionMode | null;
   activeMicId: string;
   activeOutputId: string;
   activeCameraId: string;
@@ -44,7 +47,8 @@ export type NotificationSettingKey = keyof NotificationSettings;
 export interface MediaSettings {
   micGain: number;
   outputVolume: number;
-  noiseSuppression: boolean;
+  noiseSuppressionMode: NoiseSuppressionMode;
+  webNoiseSuppressionFallbackMode: WebNoiseSuppressionMode | null;
   activeMicId: string;
   activeOutputId: string;
   activeCameraId: string;
@@ -56,7 +60,8 @@ export const useSettingsStore = create<SettingsState>()(
       language: detectLanguage(),
       micGain: 100,
       outputVolume: 100,
-      noiseSuppression: false,
+      noiseSuppressionMode: "webrtc_basic",
+      webNoiseSuppressionFallbackMode: null,
       activeMicId: "default",
       activeOutputId: "default",
       activeCameraId: "default",

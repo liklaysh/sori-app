@@ -44,6 +44,8 @@ export interface SoriUser {
   role: string;
   avatarUrl?: string | null;
   noiseSuppression?: boolean;
+  noiseSuppressionMode?: "webrtc_basic" | "rnnoise" | "experimental_ai";
+  webNoiseSuppressionFallbackMode?: "webrtc_basic" | "rnnoise" | null;
   micGain?: number;
   outputVolume?: number;
 }

@@ -51,8 +51,20 @@ const dictionary = {
     camera: "Camera",
     inputVolume: "Input Volume",
     outputVolume: "Output Volume",
-    noiseSuppression: "Noise Suppression",
-    noiseSuppressionDescription: "AI-powered background noise removal.",
+    noiseSuppression: "Noise suppression",
+    noiseSuppressionHint: "Choose one audio cleanup engine for voice channels and calls.",
+    noiseSuppressionChanged: "Noise suppression changed",
+    experimentalAiDesktopOnly: "Experimental AI is available only in desktop app",
+    noiseModeLabels: {
+      webrtc_basic: "WebRTC Basic",
+      rnnoise: "RNNoise",
+      experimental_ai: "Experimental AI"
+    },
+    noiseModeDescriptions: {
+      webrtc_basic: "Uses WebRTC echo cancellation, noise suppression, and auto gain.",
+      rnnoise: "Uses RNNoise for stronger background noise filtering.",
+      experimental_ai: "Experimental desktop AI mode prepared for dtln-rs."
+    },
     hideMyCamera: "Hide my camera",
     presentScreen: "Present screen",
     hardwareTest: "Hardware Test",
@@ -219,7 +231,19 @@ const dictionary = {
     inputVolume: "Громкость входа",
     outputVolume: "Громкость выхода",
     noiseSuppression: "Шумоподавление",
-    noiseSuppressionDescription: "Удаление фонового шума с помощью AI.",
+    noiseSuppressionHint: "Выберите один движок обработки звука для голосовых каналов и звонков.",
+    noiseSuppressionChanged: "Шумоподавление изменено",
+    experimentalAiDesktopOnly: "Experimental AI доступен только в desktop-приложении",
+    noiseModeLabels: {
+      webrtc_basic: "WebRTC Basic",
+      rnnoise: "RNNoise",
+      experimental_ai: "Experimental AI"
+    },
+    noiseModeDescriptions: {
+      webrtc_basic: "Использует WebRTC-эхоподавление, шумоподавление и автогейн.",
+      rnnoise: "Использует RNNoise для более сильной фильтрации фонового шума.",
+      experimental_ai: "Экспериментальный desktop AI-режим, подготовленный под dtln-rs."
+    },
     hideMyCamera: "Скрыть мою камеру",
     presentScreen: "Демонстрация экрана",
     hardwareTest: "Проверка оборудования",

@@ -4,8 +4,13 @@ import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { DirectCallOverlay } from "../components/DirectCallOverlay";
 import { SettingsPanel } from "../components/SettingsPanel";
+import { apiRequest } from "../lib/api";
 import { userToCallPeer } from "../stores/directCallStore";
 import { isTauriRuntime } from "../lib/desktopHttp";
+import { isNoiseSuppressionMode, isWebNoiseSuppressionMode } from "../lib/noiseSuppression";
+import { useAuthStore } from "../stores/authStore";
+import { useSettingsStore } from "../stores/settingsStore";
+import type { SoriUser } from "../types/sori";
 import { useMainShellController } from "../features/main/useMainShellController";
 import {
   ChannelSidebar,
@@ -86,6 +91,7 @@ export function MainShell() {
 
   return (
     <main className="flex h-full overflow-hidden bg-sori-surface-base text-sori-text-primary">
+      <MediaSettingsSync />
       <ServerRail
         activeModule={state.showCommunity ? "community" : "dm"}
         totalUnreadDMs={state.totalUnreadDMs}
@@ -283,6 +289,63 @@ export function MainShell() {
       <SettingsPanel open={state.settingsOpen} onClose={() => state.setSettingsOpen(false)} />
     </main>
   );
+}
+
+function MediaSettingsSync() {
+  const user = useAuthStore((state) => state.user);
+  const setUser = useAuthStore((state) => state.setUser);
+  const micGain = useSettingsStore((state) => state.micGain);
+  const outputVolume = useSettingsStore((state) => state.outputVolume);
+  const noiseSuppressionMode = useSettingsStore((state) => state.noiseSuppressionMode);
+  const webNoiseSuppressionFallbackMode = useSettingsStore((state) => state.webNoiseSuppressionFallbackMode);
+  const setMediaSettings = useSettingsStore((state) => state.setMediaSettings);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const nextNoiseMode = isNoiseSuppressionMode(user.noiseSuppressionMode)
+      ? user.noiseSuppressionMode
+      : user.noiseSuppression
+        ? "rnnoise"
+        : "webrtc_basic";
+    const nextWebFallback = isWebNoiseSuppressionMode(user.webNoiseSuppressionFallbackMode)
+      ? user.webNoiseSuppressionFallbackMode
+      : user.noiseSuppression
+        ? "rnnoise"
+        : null;
+
+    setMediaSettings({
+      micGain: user.micGain ?? 100,
+      outputVolume: user.outputVolume ?? 100,
+      noiseSuppressionMode: nextNoiseMode,
+      webNoiseSuppressionFallbackMode: nextWebFallback,
+    });
+  }, [setMediaSettings, user?.id]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const updated = await apiRequest<SoriUser>("/users/me", {
+          method: "PATCH",
+          body: JSON.stringify({
+            micGain,
+            outputVolume,
+            noiseSuppressionMode,
+            webNoiseSuppressionFallbackMode,
+          }),
+        });
+        setUser(updated);
+      } catch {
+        // Settings are kept locally and retried on the next change.
+      }
+    }, 1200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [micGain, noiseSuppressionMode, outputVolume, setUser, user, webNoiseSuppressionFallbackMode]);
+
+  return null;
 }
 
 function ChatLoadingSkeleton(props: { label: string }) {

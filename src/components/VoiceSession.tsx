@@ -1,6 +1,6 @@
 import { AudioTrack, isTrackReference, LiveKitRoom, useLocalParticipant, useRemoteParticipants, useRoomContext, useTracks, VideoTrack } from "@livekit/components-react";
 import type { TrackReferenceOrPlaceholder } from "@livekit/components-react";
-import { ConnectionState, ParticipantEvent, RoomEvent, Track, VideoPresets } from "livekit-client";
+import { ConnectionState, LocalAudioTrack, ParticipantEvent, RoomEvent, Track, VideoPresets } from "livekit-client";
 import { ChevronDown, Headphones, Mic, MicOff, Monitor, Phone, PhoneOff, ScreenShare, StopCircle, Video, VideoOff, Waves } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -15,10 +15,11 @@ import { cn } from "../lib/cn";
 import { formatCallDuration } from "../lib/duration";
 import { useT } from "../lib/i18n";
 import { ensureCameraAccess } from "../lib/mediaDevices";
+import { applyNoiseSuppressionMode, getAudioCaptureOptions } from "../lib/noiseSuppression";
 import { useAuthStore } from "../stores/authStore";
 import { useDirectCallStore } from "../stores/directCallStore";
 import { useServerStore } from "../stores/serverStore";
-import { useSettingsStore } from "../stores/settingsStore";
+import { NoiseSuppressionMode, useSettingsStore } from "../stores/settingsStore";
 import { useSocketStore } from "../stores/socketStore";
 import { useVoiceStore } from "../stores/voiceStore";
 
@@ -137,10 +138,11 @@ function isUserCancelledMediaPicker(failure: unknown) {
 const TELEMETRY_INTERVAL_MS = 10_000;
 
 function LocalMicrophonePublisher() {
+  const t = useT();
   const { localParticipant } = useLocalParticipant();
   const isMuted = useVoiceStore((state) => state.isMuted);
   const activeMicId = useSettingsStore((state) => state.activeMicId);
-  const noiseSuppression = useSettingsStore((state) => state.noiseSuppression);
+  const noiseSuppressionMode = useSettingsStore((state) => state.noiseSuppressionMode);
   const setMediaSettings = useSettingsStore((state) => state.setMediaSettings);
 
   useEffect(() => {
@@ -177,12 +179,7 @@ function LocalMicrophonePublisher() {
     let cancelled = false;
 
     const syncMicrophone = async () => {
-      const audioOptions = {
-        deviceId: activeMicId && activeMicId !== "default" ? activeMicId : undefined,
-        echoCancellation: true,
-        noiseSuppression,
-        autoGainControl: true,
-      };
+      const audioOptions = getAudioCaptureOptions(noiseSuppressionMode, activeMicId);
 
       try {
         await localParticipant.setMicrophoneEnabled(!isMuted, audioOptions);
@@ -196,7 +193,7 @@ function LocalMicrophonePublisher() {
           try {
             await localParticipant.setMicrophoneEnabled(true, {
               echoCancellation: true,
-              noiseSuppression,
+              noiseSuppression: noiseSuppressionMode === "webrtc_basic",
               autoGainControl: true,
             });
             return;
@@ -217,7 +214,33 @@ function LocalMicrophonePublisher() {
     return () => {
       cancelled = true;
     };
-  }, [activeMicId, isMuted, localParticipant, noiseSuppression, setMediaSettings]);
+  }, [activeMicId, isMuted, localParticipant, noiseSuppressionMode, setMediaSettings]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const applyProcessor = async () => {
+      const publication = localParticipant.getTrackPublication(Track.Source.Microphone);
+      if (!publication?.audioTrack || !(publication.audioTrack instanceof LocalAudioTrack)) {
+        return;
+      }
+
+      const result = await applyNoiseSuppressionMode(publication.audioTrack, noiseSuppressionMode);
+      if (!cancelled && result === "experimental_ai_unavailable") {
+        toast.message(t.experimentalAiDesktopOnly);
+      }
+    };
+
+    void applyProcessor().catch((error) => {
+      if (!cancelled) {
+        toast.error(error instanceof Error ? error.message : "Failed to apply noise suppression.");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [localParticipant, noiseSuppressionMode, t.experimentalAiDesktopOnly]);
 
   return null;
 }
@@ -627,7 +650,7 @@ function SessionControls(props: {
   const isDeafened = useVoiceStore((state) => state.isDeafened);
   const toggleMute = useVoiceStore((state) => state.toggleMute);
   const toggleDeafen = useVoiceStore((state) => state.toggleDeafen);
-  const noiseSuppression = useSettingsStore((state) => state.noiseSuppression);
+  const noiseSuppressionMode = useSettingsStore((state) => state.noiseSuppressionMode);
   const activeMicId = useSettingsStore((state) => state.activeMicId);
   const activeOutputId = useSettingsStore((state) => state.activeOutputId);
   const activeCameraId = useSettingsStore((state) => state.activeCameraId);
@@ -783,7 +806,7 @@ function SessionControls(props: {
 
       <button
         type="button"
-        className={controlButtonClass(noiseSuppression, "primary")}
+        className={controlButtonClass(noiseSuppressionMode !== "webrtc_basic", "primary")}
         onClick={(event) => {
           event.stopPropagation();
           setNoiseMenuAnchor((current) => current ? null : rectAnchor(event.currentTarget));
@@ -827,8 +850,14 @@ function SessionControls(props: {
       {noiseMenuAnchor && (
         <NoiseSuppressionMenu
           anchor={noiseMenuAnchor}
-          enabled={noiseSuppression}
-          onToggle={(enabled) => setMediaSettings({ noiseSuppression: enabled })}
+          value={noiseSuppressionMode}
+          onChange={(mode) => {
+            setMediaSettings({
+              noiseSuppressionMode: mode,
+              ...(mode === "experimental_ai" ? {} : { webNoiseSuppressionFallbackMode: mode })
+            });
+            toast.success(t.noiseSuppressionChanged);
+          }}
         />
       )}
     </div>
@@ -932,8 +961,8 @@ function CameraDeviceMenu(props: {
 
 function NoiseSuppressionMenu(props: {
   anchor: ControlMenuAnchor;
-  enabled: boolean;
-  onToggle: (enabled: boolean) => void;
+  value: NoiseSuppressionMode;
+  onChange: (mode: NoiseSuppressionMode) => void;
 }) {
   const t = useT();
   if (!props.anchor) return null;
@@ -944,31 +973,48 @@ function NoiseSuppressionMenu(props: {
       style={floatingFromRect(props.anchor, 288)}
       onClick={(event) => event.stopPropagation()}
     >
-      <div className="flex items-start gap-3">
-        <div className={cn(
-          "grid h-10 w-10 shrink-0 place-items-center rounded-xl border",
-          props.enabled ? "border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary" : "border-sori-border-subtle bg-sori-surface-elevated text-sori-text-muted"
-        )}>
+      <div className="mb-3 flex items-start gap-3">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary">
           <Waves className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-black uppercase tracking-widest text-sori-text-strong">{t.noiseSuppression}</div>
-          <p className="mt-1 text-[11px] leading-relaxed text-sori-text-muted">{t.noiseSuppressionDescription}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-sori-text-muted">{t.noiseSuppressionHint}</p>
         </div>
-        <button
-          type="button"
-          className={cn(
-            "relative h-6 w-11 shrink-0 rounded-full border transition",
-            props.enabled ? "border-sori-border-accent bg-sori-accent-primary" : "border-sori-border-subtle bg-sori-surface-elevated"
-          )}
-          onClick={() => props.onToggle(!props.enabled)}
-        >
-          <span className={cn(
-            "absolute top-0.5 h-5 w-5 rounded-full bg-white transition",
-            props.enabled ? "left-5" : "left-0.5"
-          )} />
-        </button>
       </div>
+      <NoiseSuppressionModeList value={props.value} onChange={props.onChange} />
+    </div>
+  );
+}
+
+function NoiseSuppressionModeList(props: {
+  value: NoiseSuppressionMode;
+  onChange: (mode: NoiseSuppressionMode) => void;
+}) {
+  const t = useT();
+  const modes: NoiseSuppressionMode[] = ["webrtc_basic", "rnnoise", "experimental_ai"];
+
+  return (
+    <div className="space-y-2">
+      {modes.map((mode) => {
+        const active = props.value === mode;
+        return (
+          <button
+            key={mode}
+            type="button"
+            className={cn(
+              "w-full rounded-xl border px-3 py-2.5 text-left transition",
+              active
+                ? "border-sori-border-accent bg-sori-surface-accent-subtle text-sori-text-strong"
+                : "border-sori-border-subtle bg-sori-surface-elevated text-sori-text-muted hover:border-sori-border-medium hover:text-sori-text-strong"
+            )}
+            onClick={() => props.onChange(mode)}
+          >
+            <div className="text-[11px] font-black uppercase tracking-wide">{t.noiseModeLabels[mode]}</div>
+            <p className="mt-1 text-[10px] font-medium leading-snug text-sori-text-muted">{t.noiseModeDescriptions[mode]}</p>
+          </button>
+        );
+      })}
     </div>
   );
 }
