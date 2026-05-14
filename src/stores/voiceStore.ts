@@ -43,7 +43,7 @@ interface VoiceState {
   occupantsByChannel: Record<string, VoiceOccupant[]>;
   isMuted: boolean;
   isDeafened: boolean;
-  joinChannel: (channelId: string) => Promise<void>;
+  joinChannel: (channelId: string, options?: { silent?: boolean }) => Promise<void>;
   leaveChannel: (options?: { silent?: boolean }) => void;
   setOccupants: (channelId: string, occupants: VoiceOccupant[]) => void;
   updateOccupant: (channelId: string, userId: string, data: Partial<VoiceOccupant>) => void;
@@ -61,7 +61,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   isMuted: false,
   isDeafened: false,
 
-  joinChannel: async (channelId) => {
+  joinChannel: async (channelId, options) => {
     const socket = useSocketStore.getState().socket;
     set({ status: "connecting" });
     try {
@@ -79,11 +79,15 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         livekitToken: tokenData.token,
         startedAt: tokenData.startedAt || Date.now()
       });
-      playNotificationSound("voiceJoin");
-      toast.success("Joined voice channel.");
+      if (!options?.silent) {
+        playNotificationSound("voiceJoin");
+        toast.success("Joined voice channel.");
+      }
     } catch (error) {
       set({ status: "error", connectedChannelId: null, livekitToken: null, startedAt: null });
-      toast.error(error instanceof Error ? error.message : "Failed to join voice channel.");
+      if (!options?.silent) {
+        toast.error(error instanceof Error ? error.message : "Failed to join voice channel.");
+      }
     }
   },
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { useAuthStore } from "../../stores/authStore";
 import { chatContext, useChatStore } from "../../stores/chatStore";
@@ -23,6 +23,7 @@ export function useMainShellController() {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => loadCollapsedCategories());
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [isDirectCallExpanded, setIsDirectCallExpanded] = useState(false);
+  const restoredVoiceChannelRef = useRef<string | null>(null);
 
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
@@ -137,6 +138,48 @@ export function useMainShellController() {
   ]);
 
   useMainSocketEvents(socketEvents);
+
+  useEffect(() => {
+    if (
+      !socket?.connected
+      || !user?.id
+      || connectedChannelId
+      || voiceStatus !== "idle"
+      || directCallStatus !== "idle"
+    ) {
+      return;
+    }
+
+    const channelToRestore = Object.entries(occupantsByChannel).find(([, occupants]) =>
+      occupants.some((occupant) => occupant.userId === user.id),
+    )?.[0] || null;
+
+    if (!channelToRestore) {
+      restoredVoiceChannelRef.current = null;
+      return;
+    }
+
+    if (restoredVoiceChannelRef.current === channelToRestore) {
+      return;
+    }
+
+    restoredVoiceChannelRef.current = channelToRestore;
+    void (async () => {
+      await joinVoiceChannel(channelToRestore, { silent: true });
+      const restoredChannelId = useVoiceStore.getState().connectedChannelId;
+      if (restoredChannelId !== channelToRestore && restoredVoiceChannelRef.current === channelToRestore) {
+        restoredVoiceChannelRef.current = null;
+      }
+    })();
+  }, [
+    connectedChannelId,
+    directCallStatus,
+    joinVoiceChannel,
+    occupantsByChannel,
+    socket,
+    user?.id,
+    voiceStatus,
+  ]);
 
   useEffect(() => {
     if (!socket || !connectedChannelId || !user?.id) {
