@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4
+
+- Added synced desktop noise suppression mode selection with WebRTC Basic, RNNoise, and an Experimental AI provider layer with safe fallback behavior.
+- Restored voice channel state after app reload so the desktop connected voice module returns to the active session.
+- Reworked message reactions so reaction pills attach to the message bubble instead of rendering as detached rows.
+- Redesigned audio attachment bubbles with compact file metadata, inline playback controls, progress seeking, and volume handling.
+- Updated desktop release metadata for the 0.1.4 app build.
+
 ## 0.1.3
 
 - Improved voice channel leave and mute/deafen UI synchronization in the desktop client.
