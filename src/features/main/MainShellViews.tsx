@@ -1336,6 +1336,8 @@ export function MessageRow(props: {
     if (reaction.userId === props.currentUser?.id) acc[reaction.emoji].mine = true;
     return acc;
   }, {} as Record<string, { count: number; mine: boolean }>);
+  const reactionEntries = Object.entries(groupedReactions);
+  const hasReactions = reactionEntries.length > 0 && !message.isDeleted;
 
   return (
     <div
@@ -1353,7 +1355,11 @@ export function MessageRow(props: {
             <span className="text-[10px] font-bold text-sori-text-dim">{formatTime(message.createdAt)}</span>
           </div>
 
-          <div className={cn("flex w-full flex-col gap-2", isOwn ? "items-end" : "items-start")}>
+          <div className={cn(
+            "relative flex max-w-full flex-col gap-2",
+            isOwn ? "items-end" : "items-start",
+            hasReactions && "mb-4"
+          )}>
             {callType ? (
               <CallMessageCard type={callType} createdAt={message.createdAt} content={message.content} t={props.t} />
             ) : message.content || message.isDeleted ? (
@@ -1385,22 +1391,25 @@ export function MessageRow(props: {
               <MessageLinkPreviews message={message} />
             )}
 
-            {Object.keys(groupedReactions).length > 0 && !message.isDeleted && (
-              <div className={cn("mt-1.5 flex flex-wrap gap-1.5", isOwn ? "justify-end" : "justify-start")}>
-                {Object.entries(groupedReactions).map(([emoji, reaction]) => (
+            {hasReactions && (
+              <div className="absolute -bottom-3 left-3 z-10 flex max-w-[calc(100%-24px)] flex-wrap gap-1.5">
+                {reactionEntries.map(([emoji, reaction]) => (
                   <button
                     type="button"
                     key={emoji}
                     className={cn(
-                      "flex items-center gap-1 rounded-lg border px-1.5 py-0.5 transition-colors",
+                      "flex min-h-6 items-center gap-1 rounded-full border px-2 py-0.5 text-sori-text-primary transition-colors",
                       reaction.mine
-                        ? "border-sori-border-accent bg-sori-surface-accent-subtle"
-                        : "border-sori-border-subtle bg-sori-surface-panel hover:bg-sori-surface-hover"
+                        ? "border-sori-border-accent bg-sori-surface-accent-subtle text-sori-text-strong hover:border-sori-border-accent"
+                        : "border-sori-border-subtle bg-sori-surface-elevated hover:bg-sori-surface-hover"
                     )}
                     onClick={() => props.onReaction?.(message, emoji)}
                   >
-                    <span className="text-xs">{emoji}</span>
-                    <span className="text-[9px] font-black text-sori-text-dim">{reaction.count}</span>
+                    <span className="text-xs leading-none">{emoji}</span>
+                    <span className={cn(
+                      "text-[10px] font-black leading-none",
+                      reaction.mine ? "text-sori-accent-primary" : "text-sori-text-dim"
+                    )}>{reaction.count}</span>
                   </button>
                 ))}
               </div>
