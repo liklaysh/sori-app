@@ -23,9 +23,11 @@ import {
   MicOff,
   Music,
   Paperclip,
+  Pause,
   Phone,
   PhoneMissed,
   PhoneOff,
+  Play,
   Reply,
   Search,
   Send,
@@ -37,6 +39,7 @@ import {
   UploadCloud,
   UserRound,
   Volume2,
+  VolumeX,
   Waves,
   X
 } from "lucide-react";
@@ -1453,30 +1456,7 @@ export function MessageAttachment(props: { attachment: Attachment; onOpen?: () =
   }
 
   if (isAudio) {
-    return (
-      <div className="flex min-w-[280px] max-w-md items-center gap-4 rounded-2xl border border-sori-border-subtle bg-sori-surface-elevated p-4 shadow-lg">
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary">
-          <Music className="h-6 w-6" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="mb-2 truncate text-xs font-bold text-sori-text-strong">{props.attachment.fileName}</p>
-          <audio src={props.attachment.fileUrl} controls preload="metadata" className="h-9 w-full min-w-[220px] max-w-sm accent-sori-accent-primary" />
-          <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-sori-text-muted">{formatFileSize(props.attachment.fileSize)}</p>
-        </div>
-        <a
-          href={props.attachment.fileUrl}
-          download={props.attachment.fileName}
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sori-surface-accent-subtle text-sori-accent-primary transition hover:bg-sori-accent-primary hover:text-black"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void openSafeExternalUrl(props.attachment.fileUrl);
-          }}
-        >
-          <Download className="h-5 w-5" />
-        </a>
-      </div>
-    );
+    return <AudioAttachmentBubble attachment={props.attachment} />;
   }
 
   return (
@@ -1498,6 +1478,158 @@ export function MessageAttachment(props: { attachment: Attachment; onOpen?: () =
       >
         <Download className="h-5 w-5" />
       </a>
+    </div>
+  );
+}
+
+function AudioAttachmentBubble(props: { attachment: Attachment }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(0.85);
+  const [isVolumeOpen, setIsVolumeOpen] = useState(false);
+  const progressMax = duration || 0;
+  const progressValue = Math.min(currentTime, progressMax || currentTime || 0);
+
+  useEffect(() => {
+    if (!audioRef.current) {
+      return;
+    }
+    audioRef.current.volume = volume;
+  }, [volume]);
+
+  const togglePlayback = async () => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    if (audio.paused) {
+      try {
+        await audio.play();
+        setIsPlaying(true);
+      } catch {
+        setIsPlaying(false);
+      }
+      return;
+    }
+
+    audio.pause();
+    setIsPlaying(false);
+  };
+
+  const seekTo = (value: string) => {
+    const nextTime = Number(value);
+    const audio = audioRef.current;
+    if (!audio || !Number.isFinite(nextTime)) {
+      return;
+    }
+
+    audio.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  };
+
+  const setNextVolume = (value: string) => {
+    const nextVolume = Number(value);
+    if (!Number.isFinite(nextVolume)) {
+      return;
+    }
+
+    setVolume(nextVolume);
+  };
+
+  const sizeLabel = formatFileSize(props.attachment.fileSize);
+
+  return (
+    <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-sori-border-subtle bg-sori-surface-elevated p-3.5 shadow-sm sm:w-[420px]">
+      <audio
+        ref={audioRef}
+        src={props.attachment.fileUrl}
+        preload="metadata"
+        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
+        onPause={() => setIsPlaying(false)}
+        onPlay={() => setIsPlaying(true)}
+        onEnded={() => setIsPlaying(false)}
+      />
+
+      <div className="mb-3 flex items-center gap-3">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-sori-border-accent bg-sori-surface-accent-subtle text-sori-accent-primary">
+          <Music className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-black text-sori-text-strong">{props.attachment.fileName || "Voice Message"}</p>
+          <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-wider text-sori-text-muted">
+            {[sizeLabel, duration ? formatAudioTime(duration) : ""].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+        <a
+          href={props.attachment.fileUrl}
+          download={props.attachment.fileName}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-sori-text-muted transition hover:bg-sori-surface-hover hover:text-sori-accent-primary"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void openSafeExternalUrl(props.attachment.fileUrl);
+          }}
+        >
+          <Download className="h-4 w-4" />
+        </a>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={togglePlayback}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-sori-accent-primary text-black transition hover:brightness-110"
+          aria-label={isPlaying ? "Pause audio" : "Play audio"}
+        >
+          {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" />}
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-black tabular-nums">
+            <span className="text-sori-text-strong">{formatAudioTime(currentTime)}</span>
+            <span className="text-sori-text-muted">{formatAudioTime(duration)}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={progressMax}
+            step={0.1}
+            value={progressValue}
+            disabled={!progressMax}
+            onChange={(event) => seekTo(event.target.value)}
+            className="h-1.5 w-full cursor-pointer accent-sori-accent-primary disabled:cursor-default disabled:opacity-50"
+            aria-label="Audio progress"
+          />
+        </div>
+
+        <div className="group/volume flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsVolumeOpen((current) => !current)}
+            className="grid h-9 w-9 place-items-center rounded-xl text-sori-text-muted transition hover:bg-sori-surface-hover hover:text-sori-accent-primary"
+            aria-label="Audio volume"
+          >
+            {volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            onChange={(event) => setNextVolume(event.target.value)}
+            className={cn(
+              "h-1.5 cursor-pointer accent-sori-accent-primary transition-all group-hover/volume:w-16 group-hover/volume:opacity-100 group-focus-within/volume:w-16 group-focus-within/volume:opacity-100",
+              isVolumeOpen ? "w-16 opacity-100" : "w-0 opacity-0"
+            )}
+            aria-label="Audio volume"
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -2110,6 +2242,17 @@ function clamp(value: number, min: number, max: number) {
 
 function formatCountLabel(template: string, count: number) {
   return template.replace("{count}", String(count));
+}
+
+function formatAudioTime(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0:00";
+  }
+
+  const totalSeconds = Math.floor(value);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function formatFileSize(size?: number | null) {
