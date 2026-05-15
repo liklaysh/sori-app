@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- Fixed a desktop media settings sync loop that repeatedly reloaded chat data and could make the app flicker.
+- Fixed desktop voice channel manual leave behavior so stale occupant snapshots no longer reconnect the user after pressing disconnect.
+- Updated desktop release metadata for the 0.1.5 hotfix build.
+
 ## 0.1.4
 
 - Added synced desktop noise suppression mode selection with WebRTC Basic, RNNoise, and an Experimental AI provider layer with safe fallback behavior.
