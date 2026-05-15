@@ -86,7 +86,7 @@ export function useMainShellController() {
     if (user && bootstrap) {
       loadInitialData();
     }
-  }, [bootstrap, loadInitialData, user]);
+  }, [bootstrap?.endpoints.api, bootstrap?.server.defaultCommunityId, loadInitialData, user?.id]);
 
   useEffect(() => {
     const activeSocketChannel = channels.find((channel) => channel.id === activeChannelId);

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import type { MouseEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
@@ -299,43 +299,48 @@ function MediaSettingsSync() {
   const noiseSuppressionMode = useSettingsStore((state) => state.noiseSuppressionMode);
   const webNoiseSuppressionFallbackMode = useSettingsStore((state) => state.webNoiseSuppressionFallbackMode);
   const setMediaSettings = useSettingsStore((state) => state.setMediaSettings);
+  const lastSyncedRef = useRef<MediaSettingsPayload | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      lastSyncedRef.current = null;
+      return;
+    }
 
-    const nextNoiseMode = isNoiseSuppressionMode(user.noiseSuppressionMode)
-      ? user.noiseSuppressionMode
-      : user.noiseSuppression
-        ? "rnnoise"
-        : "webrtc_basic";
-    const nextWebFallback = isWebNoiseSuppressionMode(user.webNoiseSuppressionFallbackMode)
-      ? user.webNoiseSuppressionFallbackMode
-      : user.noiseSuppression
-        ? "rnnoise"
-        : null;
-
-    setMediaSettings({
-      micGain: user.micGain ?? 100,
-      outputVolume: user.outputVolume ?? 100,
-      noiseSuppressionMode: nextNoiseMode,
-      webNoiseSuppressionFallbackMode: nextWebFallback,
-    });
-  }, [setMediaSettings, user?.id]);
+    const nextSettings = mediaSettingsFromUser(user);
+    lastSyncedRef.current = nextSettings;
+    setMediaSettings(nextSettings);
+  }, [
+    setMediaSettings,
+    user?.id,
+    user?.micGain,
+    user?.noiseSuppression,
+    user?.noiseSuppressionMode,
+    user?.outputVolume,
+    user?.webNoiseSuppressionFallbackMode,
+  ]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
+
+    const nextSettings: MediaSettingsPayload = {
+      micGain,
+      outputVolume,
+      noiseSuppressionMode,
+      webNoiseSuppressionFallbackMode,
+    };
+
+    if (settingsEqual(lastSyncedRef.current, nextSettings)) {
+      return;
+    }
 
     const timeoutId = window.setTimeout(async () => {
       try {
         const updated = await apiRequest<SoriUser>("/users/me", {
           method: "PATCH",
-          body: JSON.stringify({
-            micGain,
-            outputVolume,
-            noiseSuppressionMode,
-            webNoiseSuppressionFallbackMode,
-          }),
+          body: JSON.stringify(nextSettings),
         });
+        lastSyncedRef.current = mediaSettingsFromUser(updated);
         setUser(updated);
       } catch {
         // Settings are kept locally and retried on the next change.
@@ -343,9 +348,44 @@ function MediaSettingsSync() {
     }, 1200);
 
     return () => window.clearTimeout(timeoutId);
-  }, [micGain, noiseSuppressionMode, outputVolume, setUser, user, webNoiseSuppressionFallbackMode]);
+  }, [micGain, noiseSuppressionMode, outputVolume, setUser, user?.id, webNoiseSuppressionFallbackMode]);
 
   return null;
+}
+
+type MediaSettingsPayload = {
+  micGain: number;
+  outputVolume: number;
+  noiseSuppressionMode: NonNullable<SoriUser["noiseSuppressionMode"]>;
+  webNoiseSuppressionFallbackMode: SoriUser["webNoiseSuppressionFallbackMode"];
+};
+
+function mediaSettingsFromUser(user: SoriUser): MediaSettingsPayload {
+  const nextNoiseMode = isNoiseSuppressionMode(user.noiseSuppressionMode)
+    ? user.noiseSuppressionMode
+    : user.noiseSuppression
+      ? "rnnoise"
+      : "webrtc_basic";
+  const nextWebFallback = isWebNoiseSuppressionMode(user.webNoiseSuppressionFallbackMode)
+    ? user.webNoiseSuppressionFallbackMode
+    : user.noiseSuppression
+      ? "rnnoise"
+      : null;
+
+  return {
+    micGain: user.micGain ?? 100,
+    outputVolume: user.outputVolume ?? 100,
+    noiseSuppressionMode: nextNoiseMode,
+    webNoiseSuppressionFallbackMode: nextWebFallback,
+  };
+}
+
+function settingsEqual(left: MediaSettingsPayload | null, right: MediaSettingsPayload) {
+  return Boolean(left)
+    && left?.micGain === right.micGain
+    && left.outputVolume === right.outputVolume
+    && left.noiseSuppressionMode === right.noiseSuppressionMode
+    && left.webNoiseSuppressionFallbackMode === right.webNoiseSuppressionFallbackMode;
 }
 
 function ChatLoadingSkeleton(props: { label: string }) {
