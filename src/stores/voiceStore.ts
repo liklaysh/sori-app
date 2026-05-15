@@ -10,6 +10,29 @@ import { useSocketStore } from "./socketStore";
 
 type VoiceStatus = "idle" | "connecting" | "connected" | "error";
 
+const MANUAL_LEAVE_GUARD_MS = 60_000;
+const manualLeaveGuards = new Map<string, number>();
+
+function getManualLeaveGuardKey(channelId: string, userId: string) {
+  return `${channelId}:${userId}`;
+}
+
+function suppressStaleSelfOccupant(channelId: string, occupants: VoiceOccupant[]) {
+  const userId = useAuthStore.getState().user?.id;
+  if (!userId) return occupants;
+
+  const guardKey = getManualLeaveGuardKey(channelId, userId);
+  const suppressUntil = manualLeaveGuards.get(guardKey);
+  if (!suppressUntil) return occupants;
+
+  if (Date.now() > suppressUntil) {
+    manualLeaveGuards.delete(guardKey);
+    return occupants;
+  }
+
+  return occupants.filter((occupant) => occupant.userId !== userId);
+}
+
 function patchOccupant(
   occupantsByChannel: Record<string, VoiceOccupant[]>,
   channelId: string,
@@ -63,6 +86,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
   joinChannel: async (channelId, options) => {
     const socket = useSocketStore.getState().socket;
+    const userId = useAuthStore.getState().user?.id;
+    if (userId) {
+      manualLeaveGuards.delete(getManualLeaveGuardKey(channelId, userId));
+    }
+
     set({ status: "connecting" });
     try {
       await ensureMicrophoneAccess(useSettingsStore.getState().activeMicId);
@@ -96,6 +124,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     const socket = useSocketStore.getState().socket;
     const userId = useAuthStore.getState().user?.id;
     if (connectedChannelId) {
+      if (userId) {
+        manualLeaveGuards.set(
+          getManualLeaveGuardKey(connectedChannelId, userId),
+          Date.now() + MANUAL_LEAVE_GUARD_MS,
+        );
+      }
       socket?.emit("user_speaking_update", { channelId: connectedChannelId, isSpeaking: false });
       socket?.emit("user_streaming_update", { channelId: connectedChannelId, isStreaming: false });
       socket?.emit("leave_voice_channel", connectedChannelId);
@@ -120,7 +154,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   setOccupants: (channelId, occupants) => set((state) => ({
     occupantsByChannel: {
       ...state.occupantsByChannel,
-      [channelId]: occupants
+      [channelId]: suppressStaleSelfOccupant(channelId, occupants)
     }
   })),
 
