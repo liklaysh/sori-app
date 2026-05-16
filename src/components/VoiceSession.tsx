@@ -273,7 +273,7 @@ function LocalMicrophonePublisher() {
             await localParticipant.setMicrophoneEnabled(true, {
               echoCancellation: true,
               noiseSuppression: noiseSuppressionMode === "webrtc_basic",
-              autoGainControl: true,
+              autoGainControl: false,
             });
             emitVoiceLifecycle(socket, {
               event: "audio_track_publish_recovered",
@@ -317,8 +317,22 @@ function LocalMicrophonePublisher() {
         return;
       }
 
-      const result = await applyNoiseSuppressionMode(publication.audioTrack, noiseSuppressionMode);
-      if (!cancelled && result === "experimental_ai_unavailable") {
+      const processorDiagnostics = await applyNoiseSuppressionMode(publication.audioTrack, noiseSuppressionMode);
+      const gateDiagnostics = "gate" in processorDiagnostics ? processorDiagnostics.gate : null;
+      emitVoiceLifecycle(socket, {
+        event: "audio_processor_applied",
+        reason: "publish_track_processor",
+        ...lifecycleTarget,
+        details: {
+          mode: noiseSuppressionMode,
+          gateEnabled: Boolean(processorDiagnostics.gateEnabled),
+          hasProcessedTrack: Boolean(processorDiagnostics.hasProcessedTrack),
+          thresholdDb: gateDiagnostics?.thresholdDb,
+          floorGain: gateDiagnostics?.floorGain,
+          experimentalAiUnavailable: Boolean(processorDiagnostics.experimentalAiUnavailable),
+        },
+      });
+      if (!cancelled && processorDiagnostics.experimentalAiUnavailable) {
         toast.message(t.experimentalAiDesktopOnly);
       }
     };
