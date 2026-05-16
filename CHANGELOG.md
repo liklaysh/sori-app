@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.6
+
+- Added desktop voice lifecycle diagnostics with short-term capped server storage, dedupe, rate limiting, and client version signals.
+- Improved desktop socket reconnect handling so voice presence resync does not rejoin after a manual leave.
+- Reworked the outgoing microphone processing pipeline so LiveKit publishes a processed audio track with suppression plus a smooth noise gate.
+- Disabled browser/webview auto gain control in voice capture to reduce low-level room noise being amplified during pauses.
+- Added audio processor lifecycle diagnostics for suppression mode, gate status, and processed-track publication.
+
 ## 0.1.5
 
 - Fixed a desktop media settings sync loop that repeatedly reloaded chat data and could make the app flicker.
