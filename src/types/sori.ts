@@ -27,6 +27,11 @@ export interface ClientBootstrapPayload {
   upload: {
     maxUploadSizeMb: number;
   };
+  build?: {
+    version: string;
+    buildId: string;
+    commit: string;
+  };
   features: {
     directMessages: boolean;
     directCalls: boolean;

@@ -4,6 +4,7 @@ import type { SoriUser } from "../types/sori";
 import { apiRequest } from "../lib/api";
 import { startNotificationSoundLoop, stopNotificationSoundLoop } from "../lib/notificationSounds";
 import { useSocketStore } from "./socketStore";
+import { emitVoiceLifecycle } from "../lib/voiceLifecycleTelemetry";
 
 type DirectCallStatus = "idle" | "calling" | "ringing" | "connected";
 
@@ -43,6 +44,11 @@ export const useDirectCallStore = create<DirectCallState>((set, get) => ({
     }
 
     set({ status: "calling", partner: target, callId: null, livekitToken: null, startedAt: null });
+    emitVoiceLifecycle(socket, {
+      event: "direct_call_initiated",
+      reason: "explicit_user_action",
+      details: { targetUserId: target.id },
+    });
     socket.emit("direct_call_initiate", { targetUserId: target.id });
   },
 
@@ -74,6 +80,11 @@ export const useDirectCallStore = create<DirectCallState>((set, get) => ({
 
     stopNotificationSoundLoop("directCall");
     useSocketStore.getState().socket?.emit("direct_call_accept", { callId });
+    emitVoiceLifecycle(useSocketStore.getState().socket, {
+      event: "direct_call_accept_requested",
+      reason: "explicit_user_action",
+      callId,
+    });
   },
 
   rejectCall: () => {
@@ -81,6 +92,11 @@ export const useDirectCallStore = create<DirectCallState>((set, get) => ({
     stopNotificationSoundLoop("directCall");
     if (callId) {
       useSocketStore.getState().socket?.emit("direct_call_reject", { callId });
+      emitVoiceLifecycle(useSocketStore.getState().socket, {
+        event: "direct_call_rejected",
+        reason: "explicit_user_action",
+        callId,
+      });
     }
     get().reset();
   },
@@ -90,6 +106,11 @@ export const useDirectCallStore = create<DirectCallState>((set, get) => ({
     stopNotificationSoundLoop("directCall");
     if (callId) {
       useSocketStore.getState().socket?.emit("direct_call_end", { callId });
+      emitVoiceLifecycle(useSocketStore.getState().socket, {
+        event: "manual_leave_clicked",
+        reason: "direct_call_end",
+        callId,
+      });
     }
     get().reset();
   },
@@ -97,6 +118,11 @@ export const useDirectCallStore = create<DirectCallState>((set, get) => ({
   handleAccepted: async (callId) => {
     try {
       stopNotificationSoundLoop("directCall");
+      emitVoiceLifecycle(useSocketStore.getState().socket, {
+        event: "direct_call_token_requested",
+        reason: "accepted_call",
+        callId,
+      });
       const tokenData = await apiRequest<{ token: string; startedAt?: number }>("/calls/token", {
         method: "POST",
         body: JSON.stringify({ callId })
@@ -108,14 +134,33 @@ export const useDirectCallStore = create<DirectCallState>((set, get) => ({
         livekitToken: tokenData.token,
         startedAt: tokenData.startedAt || Date.now()
       });
+      emitVoiceLifecycle(useSocketStore.getState().socket, {
+        event: "direct_call_connected",
+        reason: "token_received",
+        callId,
+      });
     } catch (error) {
+      emitVoiceLifecycle(useSocketStore.getState().socket, {
+        event: "direct_call_connect_failed",
+        reason: error instanceof Error ? error.message : "unknown",
+        severity: "error",
+        callId,
+      });
       toast.error(error instanceof Error ? error.message : "Failed to join direct call.");
       get().endCall();
     }
   },
 
   reset: () => {
+    const { callId, status } = get();
     stopNotificationSoundLoop("directCall");
+    if (status !== "idle") {
+      emitVoiceLifecycle(useSocketStore.getState().socket, {
+        event: "direct_call_reset",
+        reason: "local_state_reset",
+        callId,
+      });
+    }
     set({ status: "idle", callId: null, partner: null, livekitToken: null, startedAt: null });
   }
 }));

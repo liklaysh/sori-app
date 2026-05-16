@@ -8,6 +8,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useSocketStore } from "../../stores/socketStore";
 import { useVoiceStore } from "../../stores/voiceStore";
 import { useT } from "../../lib/i18n";
+import { emitVoiceLifecycle } from "../../lib/voiceLifecycleTelemetry";
 import type { Channel, DMConversation, Member, Message, SoriUser, VoiceOccupant } from "../../types/sori";
 import type { MemberMenuState, MessageActionMenuState, VoiceVolumeMenuState } from "./MainShellViews";
 import { loadCollapsedCategories, saveCollapsedCategories } from "./mainShellStorage";
@@ -165,10 +166,32 @@ export function useMainShellController() {
 
     restoredVoiceChannelRef.current = channelToRestore;
     void (async () => {
-      await joinVoiceChannel(channelToRestore, { silent: true });
-      const restoredChannelId = useVoiceStore.getState().connectedChannelId;
-      if (restoredChannelId !== channelToRestore && restoredVoiceChannelRef.current === channelToRestore) {
-        restoredVoiceChannelRef.current = null;
+      emitVoiceLifecycle(socket, {
+        event: "voice_restore_started",
+        reason: "self_occupant_present",
+        channelId: channelToRestore,
+      });
+      try {
+        await joinVoiceChannel(channelToRestore, { silent: true });
+        const restoredChannelId = useVoiceStore.getState().connectedChannelId;
+        if (restoredChannelId !== channelToRestore && restoredVoiceChannelRef.current === channelToRestore) {
+          restoredVoiceChannelRef.current = null;
+        }
+        emitVoiceLifecycle(socket, {
+          event: "voice_restore_completed",
+          reason: "token_restored",
+          channelId: channelToRestore,
+        });
+      } catch (error) {
+        if (restoredVoiceChannelRef.current === channelToRestore) {
+          restoredVoiceChannelRef.current = null;
+        }
+        emitVoiceLifecycle(socket, {
+          event: "voice_restore_failed",
+          reason: error instanceof Error ? error.message : "unknown",
+          severity: "error",
+          channelId: channelToRestore,
+        });
       }
     })();
   }, [
@@ -186,9 +209,14 @@ export function useMainShellController() {
       return;
     }
 
-    const syncVoicePresence = () => {
+    const syncVoicePresence = (reason: "state_changed" | "socket_reconnected") => {
       if (!socket.connected) return;
-      socket.emit("join_voice_channel", connectedChannelId);
+      emitVoiceLifecycle(socket, {
+        event: reason === "socket_reconnected" ? "socket_reconnected" : "voice_presence_sync",
+        reason: reason === "socket_reconnected" ? "voice_presence_resync" : "status_or_device_state_changed",
+        channelId: connectedChannelId,
+        details: { isMuted, isDeafened },
+      });
       socket.emit("voice_heartbeat", { channelId: connectedChannelId });
       socket.emit("user_audio_status_update", {
         channelId: connectedChannelId,
@@ -198,8 +226,9 @@ export function useMainShellController() {
       updateVoiceOccupant(connectedChannelId, user.id, { isMuted, isDeafened });
     };
 
-    syncVoicePresence();
-    socket.on("connect", syncVoicePresence);
+    syncVoicePresence("state_changed");
+    const handleSocketConnect = () => syncVoicePresence("socket_reconnected");
+    socket.on("connect", handleSocketConnect);
     const intervalId = window.setInterval(() => {
       if (socket.connected) {
         socket.emit("voice_heartbeat", { channelId: connectedChannelId });
@@ -207,7 +236,7 @@ export function useMainShellController() {
     }, 10000);
 
     return () => {
-      socket.off("connect", syncVoicePresence);
+      socket.off("connect", handleSocketConnect);
       window.clearInterval(intervalId);
     };
   }, [connectedChannelId, isDeafened, isMuted, socket, updateVoiceOccupant, user?.id]);

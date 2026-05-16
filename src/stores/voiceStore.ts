@@ -7,6 +7,7 @@ import { playNotificationSound } from "../lib/notificationSounds";
 import { useAuthStore } from "./authStore";
 import { useSettingsStore } from "./settingsStore";
 import { useSocketStore } from "./socketStore";
+import { emitVoiceLifecycle } from "../lib/voiceLifecycleTelemetry";
 
 type VoiceStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -93,6 +94,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
     set({ status: "connecting" });
     try {
+      emitVoiceLifecycle(socket, {
+        event: "voice_join_requested",
+        reason: options?.silent ? "restore" : "explicit_user_action",
+        channelId,
+      });
       await ensureMicrophoneAccess(useSettingsStore.getState().activeMicId);
 
       const tokenData = await apiRequest<{ token: string; startedAt?: number }>("/calls/token", {
@@ -107,12 +113,23 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         livekitToken: tokenData.token,
         startedAt: tokenData.startedAt || Date.now()
       });
+      emitVoiceLifecycle(socket, {
+        event: "voice_join_succeeded",
+        reason: options?.silent ? "restore" : "explicit_user_action",
+        channelId,
+      });
       if (!options?.silent) {
         playNotificationSound("voiceJoin");
         toast.success("Joined voice channel.");
       }
     } catch (error) {
       set({ status: "error", connectedChannelId: null, livekitToken: null, startedAt: null });
+      emitVoiceLifecycle(socket, {
+        event: "voice_join_failed",
+        reason: error instanceof Error ? error.message : "unknown",
+        severity: "error",
+        channelId,
+      });
       if (!options?.silent) {
         toast.error(error instanceof Error ? error.message : "Failed to join voice channel.");
       }
@@ -132,6 +149,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       }
       socket?.emit("user_speaking_update", { channelId: connectedChannelId, isSpeaking: false });
       socket?.emit("user_streaming_update", { channelId: connectedChannelId, isStreaming: false });
+      emitVoiceLifecycle(socket, {
+        event: "manual_leave_clicked",
+        reason: options?.silent ? "silent_leave" : "voice_control",
+        channelId: connectedChannelId,
+      });
       socket?.emit("leave_voice_channel", connectedChannelId);
       if (!options?.silent) {
         playNotificationSound("voiceLeave");
@@ -149,6 +171,11 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         ? removeOccupant(state.occupantsByChannel, connectedChannelId, userId)
         : state.occupantsByChannel
     }));
+    emitVoiceLifecycle(socket, {
+      event: "voice_leave_completed",
+      reason: "local_state_reset",
+      channelId: connectedChannelId,
+    });
   },
 
   setOccupants: (channelId, occupants) => set((state) => ({

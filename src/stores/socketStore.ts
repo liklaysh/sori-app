@@ -5,11 +5,14 @@ import { useServerStore } from "./serverStore";
 import { useSettingsStore } from "./settingsStore";
 import { createRequestId } from "../lib/requestId";
 import { getDesktopSessionToken } from "../lib/desktopHttp";
+import { getDesktopClientSignal } from "../lib/clientInfo";
+import { emitClientSignal } from "../lib/voiceLifecycleTelemetry";
 
 type SocketStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
 
 let reconnectToastId: string | number | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let lastDisconnectReason: string | null = null;
 
 function getRealtimeLabels() {
   return useSettingsStore.getState().language === "ru"
@@ -72,6 +75,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
         autoConnect: false,
         auth: {
           requestId: createRequestId(),
+          client: getDesktopClientSignal(),
           ...(token ? { token } : {})
         }
       });
@@ -79,10 +83,22 @@ export const useSocketStore = create<SocketState>((set, get) => ({
       socket.on("connect", () => {
         set({ socket, status: "connected" });
         clearReconnectNotice();
+        emitClientSignal(socket);
+        if (lastDisconnectReason) {
+          socket.emit("voice_lifecycle_event", {
+            event: "socket_reconnected",
+            reason: lastDisconnectReason,
+            severity: "info",
+            client: getDesktopClientSignal(),
+            details: { lastDisconnectReason },
+          });
+          lastDisconnectReason = null;
+        }
         socket.emit("get_voice_state");
       });
 
       socket.on("disconnect", (reason) => {
+        lastDisconnectReason = reason;
         set({ status: "disconnected" });
         if (reason !== "io client disconnect" && !reconnectTimer) {
           reconnectTimer = setTimeout(() => {
